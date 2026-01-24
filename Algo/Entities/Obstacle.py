@@ -1,4 +1,4 @@
-from Cell import CellState
+from .Cell import CellState
 from typing import List
 from constants import Direction, EXPANDED_CELL, SCREENSHOT_COST
 from Util.helper import is_valid

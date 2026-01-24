@@ -1,7 +1,7 @@
-from Cell import CellState
+from .Cell import CellState
 from typing import List
 from constants import EXPANDED_CELL
-from Obstacle import Obstacle
+from .Obstacle import Obstacle
 
 class Grid:
     """

@@ -25,3 +25,4 @@ class Robot:
             CellState: starting cell state of robot (x,y,d)
         """
         return self.states[0]
+    
