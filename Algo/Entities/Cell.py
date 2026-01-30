@@ -54,3 +54,4 @@ class CellState:
             dict: {x,y,direction,screeshot_id}
         """
         return {'x': self.x, 'y': self.y, 'd': self.direction, 's': self.screenshot_id}
+    
