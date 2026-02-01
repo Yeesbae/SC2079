@@ -1,5 +1,6 @@
 package com.example.sc2079_ay2526s2_grp08
 
+import android.content.Context
 import androidx.lifecycle.ViewModel
 import com.example.sc2079_ay2526s2_grp08.bluetooth.BluetoothManager
 import com.example.sc2079_ay2526s2_grp08.domain.*
@@ -57,10 +58,43 @@ class MainViewModel(
         bt.connect(device)
     }
 
+    private fun android.bluetooth.BluetoothDevice.toBtDevice(bonded: Boolean? = null): BtDevice {
+        val safeName = try { name } catch (_: SecurityException) { null }
+        val safeAddr = try { address } catch (_: SecurityException) { "unknown" }
+        val isBonded = bonded ?: (bondState == android.bluetooth.BluetoothDevice.BOND_BONDED)
+        return BtDevice(name = safeName, address = safeAddr, bonded = isBonded)
+    }
+
+    fun refreshPairedDevices() {
+        val paired = bt.getPairedDevices().map { it.toBtDevice(bonded = true) }
+        _state.update { it.copy(pairedDevices = paired) }
+    }
+
     /** Get list of paired Bluetooth devices */
     fun getPairedDevices(): List<android.bluetooth.BluetoothDevice> {
         return bt.getPairedDevices()
     }
+
+    fun startScan() {
+        refreshPairedDevices()
+        _state.update { it.copy(scannedDevices = emptyList(), isScanning = true) }
+        bt.clearDiscoveredDevices()
+        bt.startDiscovery()
+    }
+
+    fun stopScan() {
+        bt.stopDiscovery()
+        _state.update { it.copy(isScanning = false) }
+    }
+
+    fun clearScanResults() {
+        bt.clearDiscoveredDevices()
+        _state.update { it.copy(scannedDevices = emptyList()) }
+    }
+
+    /** Return an Intent so UI can launch system dialog */
+    fun getDiscoverableIntent(durationSec: Int = 300) =
+        bt.buildRequestDiscoverableIntent(durationSec)
 
     /** Check if Bluetooth is supported on this device */
     fun isBluetoothSupported(): Boolean = bt.isSupported()
@@ -68,52 +102,211 @@ class MainViewModel(
     /** Check if Bluetooth is enabled */
     fun isBluetoothEnabled(): Boolean = bt.isEnabled()
 
-    fun sendMoveForward() = send(Outgoing.MoveForward)
-    fun sendMoveBackward() = send(Outgoing.MoveBackward)
-    fun sendTurnLeft() = send(Outgoing.TurnLeft)
-    fun sendTurnRight() = send(Outgoing.TurnRight)
+    // ═══════════════════════════════════════════════════════════════════════════
+    // MOVEMENT COMMANDS (C.3) - With local preview
+    // ═══════════════════════════════════════════════════════════════════════════
 
-    fun sendMoveForward(steps: Int) = send(Outgoing.MoveForwardSteps(steps))
-    fun sendMoveBackward(steps: Int) = send(Outgoing.MoveBackwardSteps(steps))
-    fun sendTurnDegrees(degrees: Int) = send(Outgoing.TurnDegrees(degrees))
+    fun sendMoveForward() {
+        applyLocalMove(forward = true)
+        send(Outgoing.MoveForward)
+    }
+
+    fun sendMoveBackward() {
+        applyLocalMove(forward = false)
+        send(Outgoing.MoveBackward)
+    }
+
+    fun sendTurnLeft() {
+        applyLocalTurn(left = true)
+        send(Outgoing.TurnLeft)
+    }
+
+    fun sendTurnRight() {
+        applyLocalTurn(left = false)
+        send(Outgoing.TurnRight)
+    }
+
+    fun sendMoveForward(steps: Int) {
+        repeat(steps) { applyLocalMove(forward = true) }
+        send(Outgoing.MoveForwardSteps(steps))
+    }
+
+    fun sendMoveBackward(steps: Int) {
+        repeat(steps) { applyLocalMove(forward = false) }
+        send(Outgoing.MoveBackwardSteps(steps))
+    }
+
+    fun sendTurnDegrees(degrees: Int) {
+        // Apply local turn based on degrees
+        val turns = (degrees / 90) % 4
+        repeat(turns) { applyLocalTurn(left = degrees < 0) }
+        send(Outgoing.TurnDegrees(degrees))
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Local Movement Preview (updates UI immediately before Bluetooth response)
+    // ─────────────────────────────────────────────────────────────────────────
+
+    private fun applyLocalMove(forward: Boolean) {
+        val robot = ensureRobot()
+        val step = if (forward) 1 else -1
+        val dir = ((robot.directionDeg % 360) + 360) % 360
+
+        val (dx, dy) = when (dir) {
+            0 -> 0 to step      // North: y increases
+            90 -> step to 0     // East: x increases
+            180 -> 0 to -step   // South: y decreases
+            270 -> -step to 0   // West: x decreases
+            else -> 0 to step
+        }
+
+        val gridSize = _state.value.arena?.width ?: ArenaConfig.GRID_SIZE
+        val nx = (robot.x + dx).coerceIn(1, gridSize - 2)
+        val ny = (robot.y + dy).coerceIn(1, gridSize - 2)
+
+        _state.update {
+            it.copy(robot = robot.copy(x = nx, y = ny))
+        }
+    }
+
+    private fun applyLocalTurn(left: Boolean) {
+        val robot = ensureRobot()
+        val nextDeg = if (left) {
+            (robot.directionDeg + 270) % 360  // -90 degrees
+        } else {
+            (robot.directionDeg + 90) % 360   // +90 degrees
+        }
+        _state.update {
+            it.copy(robot = robot.copy(directionDeg = nextDeg))
+        }
+    }
+
+    private fun ensureRobot(): RobotState {
+        return _state.value.robot ?: RobotState(
+            x = 1,
+            y = 1,
+            directionDeg = 0
+        ).also { r ->
+            _state.update { it.copy(robot = r) }
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // OBSTACLE MANAGEMENT (C.6) - With local state + Bluetooth send
+    // ═══════════════════════════════════════════════════════════════════════════
 
     /**
-     * Add obstacle at position (x, y) with given ID.
-     * Also updates local arena state.
+     * Place or move an obstacle to position (x, y).
+     * Updates local state AND sends via Bluetooth.
+     * Use this for touch-to-place or drag interactions.
+     *
+     * @param id Obstacle number (1-8)
+     * @param x Grid x-coordinate
+     * @param y Grid y-coordinate
+     */
+    fun placeOrMoveObstacle(id: Int, x: Int, y: Int) {
+        val obstacleId = "B$id"
+
+        // Update local state
+        _state.update { s ->
+            // Remove any existing obstacle at this position, and update/add this obstacle
+            val filtered = s.obstacleBlocks
+                .filterNot { it.id == id }  // Remove old position of this obstacle
+                .filterNot { it.x == x && it.y == y }  // Remove any obstacle at target position
+
+            val existingObs = s.obstacleBlocks.find { it.id == id }
+            val newObs = ObstacleState(
+                id = id,
+                x = x,
+                y = y,
+                facing = existingObs?.facing,
+                targetId = existingObs?.targetId
+            )
+
+            s.copy(obstacleBlocks = filtered + newObs)
+        }
+
+        // Send via Bluetooth
+        send(Outgoing.AddObstacle(obstacleId, x, y))
+
+        // Sync to arena cells
+        syncObstaclesToArena()
+    }
+
+    /**
+     * Add obstacle at position (x, y) with given string ID.
+     * Also updates local state.
      */
     fun sendAddObstacle(obstacleId: String, x: Int, y: Int) {
-        send(Outgoing.AddObstacle(obstacleId, x, y))
-        // Update local state
-        updateLocalObstacle(obstacleId, x, y, add = true)
+        val id = obstacleId.removePrefix("B").toIntOrNull() ?: run {
+            obstacleCounter++
+            obstacleCounter
+        }
+        placeOrMoveObstacle(id, x, y)
     }
 
     /**
      * Add obstacle at position with auto-generated ID (B1, B2, etc.)
+     * Returns the obstacle ID string.
      */
     fun sendAddObstacle(x: Int, y: Int): String {
         obstacleCounter++
-        val obstacleId = "B$obstacleCounter"
-        sendAddObstacle(obstacleId, x, y)
-        return obstacleId
+        val id = obstacleCounter.coerceIn(1, ArenaConfig.MAX_OBSTACLES)
+        placeOrMoveObstacle(id, x, y)
+        return "B$id"
     }
 
     /**
-     * Remove obstacle by ID.
-     * Also updates local arena state.
+     * Remove obstacle by numeric ID (1-8).
+     * Updates local state AND sends via Bluetooth.
+     */
+    fun removeObstacle(id: Int) {
+        _state.update { s ->
+            s.copy(obstacleBlocks = s.obstacleBlocks.filterNot { it.id == id })
+        }
+        send(Outgoing.RemoveObstacle("B$id"))
+        syncObstaclesToArena()
+    }
+
+    /**
+     * Remove obstacle by string ID (e.g., "B1").
      */
     fun sendRemoveObstacle(obstacleId: String) {
-        send(Outgoing.RemoveObstacle(obstacleId))
-        // Update local state - find and remove obstacle
-        removeLocalObstacle(obstacleId)
+        val id = obstacleId.removePrefix("B").toIntOrNull() ?: return
+        removeObstacle(id)
     }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // TARGET FACE ANNOTATION (C.7)
+    // ═══════════════════════════════════════════════════════════════════════════
 
     /**
      * Set which face of an obstacle has the target image.
+     * Updates local state AND sends via Bluetooth.
+     *
+     * @param id Obstacle number (1-8)
+     * @param facing Direction the target face is pointing
+     */
+    fun setObstacleFacing(id: Int, facing: RobotDirection?) {
+        _state.update { s ->
+            val updated = s.obstacleBlocks.map { obs ->
+                if (obs.id == id) obs.copy(facing = facing) else obs
+            }
+            s.copy(obstacleBlocks = updated)
+        }
+
+        if (facing != null) {
+            send(Outgoing.SetObstacleFace("B$id", facing))
+        }
+        syncObstaclesToArena()
+    }
+
+    /**
+     * Set obstacle face by string ID.
      */
     fun sendSetObstacleFace(obstacleId: String, face: RobotDirection) {
-        send(Outgoing.SetObstacleFace(obstacleId, face))
-        // Update local state
-        updateLocalObstacleFace(obstacleId, face)
+        val id = obstacleId.removePrefix("B").toIntOrNull() ?: return
+        setObstacleFacing(id, face)
     }
 
     /**
@@ -242,6 +435,22 @@ class MainViewModel(
 
     private fun handleBluetoothEvent(ev: BluetoothManager.Event) {
         when (ev) {
+            is BluetoothManager.Event.DiscoveryStarted -> {
+                _state.update { it.copy(isScanning = true) }
+                ev.message?.let { appendLog(LogEntry.Kind.INFO, it) }
+            }
+            is BluetoothManager.Event.DeviceFound -> {
+                val d = ev.device.toBtDevice()
+                _state.update { s ->
+                    val next = (s.scannedDevices + d).distinctBy { it.address }
+                    s.copy(scannedDevices = next)
+                }
+            }
+
+            is BluetoothManager.Event.DiscoveryFinished -> {
+                _state.update { it.copy(isScanning = false) }
+                appendLog(LogEntry.Kind.INFO, "Scan finished. found=${ev.foundCount}")
+            }
             is BluetoothManager.Event.StateChanged -> {
                 _state.update {
                     it.copy(
@@ -337,26 +546,22 @@ class MainViewModel(
      * Updates the obstacle block to display the target ID.
      */
     private fun handleTargetDetected(msg: Incoming.TargetDetected) {
-        _state.update { s ->
-            // Find the obstacle in the arena and update its imageId
-            val arena = s.arena ?: return@update s
+        val numericId = msg.obstacleId.removePrefix("B").toIntOrNull()
 
-            // Search for the obstacle by ID and update it
-            val updatedCells = arena.cells.mapIndexed { idx, cell ->
-                // Check if this cell has the matching obstacle ID
-                // Note: obstacleId in Cell is Int?, but msg.obstacleId is String
-                val cellObstacleId = cell.obstacleId?.toString() ?: ""
-                if (cell.isObstacle && (cellObstacleId == msg.obstacleId || "B$cellObstacleId" == msg.obstacleId)) {
-                    cell.copy(
-                        imageId = msg.targetId,
-                        targetDirection = msg.face ?: cell.targetDirection
+        _state.update { s ->
+            // Update obstacleBlocks
+            val updatedBlocks = s.obstacleBlocks.map { obs ->
+                if (obs.id == numericId || obs.obstacleId == msg.obstacleId) {
+                    obs.copy(
+                        targetId = msg.targetId,
+                        facing = msg.face ?: obs.facing
                     )
                 } else {
-                    cell
+                    obs
                 }
             }
 
-            // Also add to detections list
+            // Add to detections list
             val detection = ImageDetection(
                 imageId = msg.targetId,
                 label = "Obstacle ${msg.obstacleId}"
@@ -364,11 +569,14 @@ class MainViewModel(
             val detections = (s.detections + detection).takeLast(100)
 
             s.copy(
-                arena = arena.copy(cells = updatedCells),
+                obstacleBlocks = updatedBlocks,
                 detections = detections,
                 lastDetection = detection
             )
         }
+
+        // Sync to arena cells
+        syncObstaclesToArena()
 
         appendLog(LogEntry.Kind.INFO, "TARGET: ${msg.obstacleId} -> ${msg.targetId}" +
                 (msg.face?.let { " (face: $it)" } ?: ""))
@@ -415,11 +623,34 @@ class MainViewModel(
     }
 
     private fun handleObstacleUpdate(msg: Incoming.ObstacleUpdate) {
-        updateLocalObstacle(msg.obstacleId, msg.x, msg.y, add = true, face = msg.targetFace)
+        val id = msg.obstacleId.removePrefix("B").toIntOrNull() ?: return
+
+        _state.update { s ->
+            val filtered = s.obstacleBlocks
+                .filterNot { it.id == id }
+                .filterNot { it.x == msg.x && it.y == msg.y }
+
+            val existingObs = s.obstacleBlocks.find { it.id == id }
+            val newObs = ObstacleState(
+                id = id,
+                x = msg.x,
+                y = msg.y,
+                facing = msg.targetFace ?: existingObs?.facing,
+                targetId = existingObs?.targetId
+            )
+
+            s.copy(obstacleBlocks = filtered + newObs)
+        }
+        syncObstaclesToArena()
     }
 
     private fun handleObstacleRemoved(msg: Incoming.ObstacleRemoved) {
-        removeLocalObstacle(msg.obstacleId)
+        val id = msg.obstacleId.removePrefix("B").toIntOrNull() ?: return
+
+        _state.update { s ->
+            s.copy(obstacleBlocks = s.obstacleBlocks.filterNot { it.id == id })
+        }
+        syncObstaclesToArena()
     }
 
     private fun handlePathSequence(msg: Incoming.PathSequence) {
@@ -476,63 +707,43 @@ class MainViewModel(
         }
     }
 
-    private fun updateLocalObstacle(obstacleId: String, x: Int, y: Int, add: Boolean, face: RobotDirection? = null) {
-        _state.update { s ->
-            val arena = s.arena ?: ArenaState.empty()
-            if (x !in 0 until arena.width || y !in 0 until arena.height) return@update s
-
-            // Extract numeric ID from "B1", "B2", etc.
-            val numericId = obstacleId.removePrefix("B").toIntOrNull()
-
-            val cell = arena.getCell(x, y)
-            s.copy(arena = arena.withCell(x, y, cell.copy(
-                isObstacle = add,
-                obstacleId = if (add) numericId else null,
-                targetDirection = if (add) (face ?: cell.targetDirection) else null
-            )))
-        }
-    }
-
-    private fun removeLocalObstacle(obstacleId: String) {
-        _state.update { s ->
-            val arena = s.arena ?: return@update s
-
-            // Find and remove obstacle by ID
-            val numericId = obstacleId.removePrefix("B").toIntOrNull()
-            val updatedCells = arena.cells.map { cell ->
-                if (cell.obstacleId == numericId) {
-                    cell.copy(isObstacle = false, obstacleId = null, imageId = null, targetDirection = null)
-                } else {
-                    cell
-                }
-            }
-
-            s.copy(arena = arena.copy(cells = updatedCells))
-        }
-    }
-
-    private fun updateLocalObstacleFace(obstacleId: String, face: RobotDirection) {
-        _state.update { s ->
-            val arena = s.arena ?: return@update s
-
-            val numericId = obstacleId.removePrefix("B").toIntOrNull()
-            val updatedCells = arena.cells.map { cell ->
-                if (cell.obstacleId == numericId) {
-                    cell.copy(targetDirection = face)
-                } else {
-                    cell
-                }
-            }
-
-            s.copy(arena = arena.copy(cells = updatedCells))
-        }
-    }
-
     private fun directionToDegrees(dir: RobotDirection): Int = when (dir) {
         RobotDirection.NORTH -> 0
         RobotDirection.EAST -> 90
         RobotDirection.SOUTH -> 180
         RobotDirection.WEST -> 270
+    }
+
+    /**
+     * Sync obstacleBlocks list to arena cells.
+     * Call this after modifying obstacleBlocks to keep arena in sync.
+     */
+    private fun syncObstaclesToArena() {
+        _state.update { s ->
+            val arena = s.arena ?: ArenaState.empty()
+
+            // Clear all obstacles from arena first
+            var updatedArena = ArenaState(
+                arena.width,
+                arena.height,
+                arena.cells.map { it.copy(isObstacle = false, obstacleId = null, imageId = null, targetDirection = null) }
+            )
+
+            // Add obstacles from obstacleBlocks
+            for (obs in s.obstacleBlocks) {
+                if (obs.x in 0 until arena.width && obs.y in 0 until arena.height) {
+                    val cell = updatedArena.getCell(obs.x, obs.y)
+                    updatedArena = updatedArena.withCell(obs.x, obs.y, cell.copy(
+                        isObstacle = true,
+                        obstacleId = obs.id,
+                        imageId = obs.targetId,
+                        targetDirection = obs.facing
+                    ))
+                }
+            }
+
+            s.copy(arena = updatedArena)
+        }
     }
 
     private fun appendLog(kind: LogEntry.Kind, text: String) {

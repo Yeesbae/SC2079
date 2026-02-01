@@ -207,19 +207,76 @@ data class LogEntry(
     enum class Kind { INFO, IN, OUT, ERROR }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Obstacle Model (Separate list for easy UI access)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Represents an obstacle block in the arena.
+ * MDP uses 8 numbered obstacles (1-8).
+ *
+ * @param id Obstacle number (1-8)
+ * @param x Grid x-coordinate
+ * @param y Grid y-coordinate
+ * @param facing Direction the target face is pointing (N/E/S/W), null if not set
+ * @param targetId Detected image ID after TARGET message, null if not detected yet
+ */
+data class ObstacleState(
+    val id: Int,
+    val x: Int,
+    val y: Int,
+    val facing: RobotDirection? = null,
+    val targetId: String? = null
+) {
+    /** Obstacle ID as string (e.g., "B1", "B2") */
+    val obstacleId: String get() = "B$id"
+}
+
+object ArenaConfig {
+    const val GRID_SIZE = 20
+    const val MAX_OBSTACLES = 8
+}
+
+data class BtDevice(
+    val name: String?,
+    val address: String,
+    val bonded: Boolean
+) {
+    val label: String get() = (name ?: "Unknown") + " ($address)"
+}
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// App State (Single Source of Truth)
+// ─────────────────────────────────────────────────────────────────────────────
+
 data class AppState(
+    // Bluetooth connection
     val mode: BluetoothManager.Mode = BluetoothManager.Mode.NONE,
     val conn: BluetoothManager.State = BluetoothManager.State.DISCONNECTED,
     val statusText: String? = null,
 
+    //Device List
+    val pairedDevices: List<BtDevice> = emptyList(),
+    val scannedDevices: List<BtDevice> = emptyList(),
+    val isScanning: Boolean = false,
+
+    // Robot state
     val robot: RobotState? = null,
 
+    // Arena grid (for rendering and collision)
     val arena: ArenaState? = null,
 
+    // Obstacle blocks (for easy UI access - MDP uses 8 obstacles)
+    val obstacleBlocks: List<ObstacleState> = emptyList(),
+
+    // Image detections
     val detections: List<ImageDetection> = emptyList(),
     val lastDetection: ImageDetection? = null,
 
+    // Path execution
     val pathExecution: PathExecutionState = PathExecutionState(),
 
+    // Message log
     val log: List<LogEntry> = emptyList()
 )

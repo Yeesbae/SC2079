@@ -1,6 +1,7 @@
 package com.example.sc2079_ay2526s2_grp08
 
 import android.Manifest
+import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothDevice
 import android.content.pm.PackageManager
 import android.os.Build
@@ -22,7 +23,11 @@ import com.example.sc2079_ay2526s2_grp08.bluetooth.BluetoothManager
  */
 
 class MainActivity : AppCompatActivity() {
+    private enum class DeviceListMode { PAIRED, DISCOVERED }
+
     private val logLock = Any()
+    private var listMode: DeviceListMode = DeviceListMode.PAIRED
+    private var discoveredDevices: List<BluetoothDevice> = emptyList()
     private lateinit var tvStatus: TextView
     private lateinit var tvLog: TextView
     private lateinit var spDevices: Spinner
@@ -31,7 +36,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var btnDisconnect: Button
     private lateinit var btnSendTest: Button
 
-    private val bt = BluetoothManager()
+    private val bt by lazy { BluetoothManager(applicationContext) }
     private var pairedDevices: List<BluetoothDevice> = emptyList()
 
     private val requestBtPerms =
@@ -73,6 +78,23 @@ class MainActivity : AppCompatActivity() {
                     is BluetoothManager.Event.Disconnected -> {
                         appendLog("DISCONNECTED: ${ev.reason} ${ev.message ?: ""}".trim())
                     }
+                    is BluetoothManager.Event.DiscoveryStarted -> {
+                        btnScan.text = "Stop"
+                        appendLog("DISCOVERY_STARTED: ${ev.message ?: ""}".trim())
+                        discoveredDevices = emptyList()
+                        showDevicesInSpinner(discoveredDevices, DeviceListMode.DISCOVERED)
+                    }
+                    is BluetoothManager.Event.DeviceFound -> {
+                        discoveredDevices = bt.getDiscoveredDevices()
+                        showDevicesInSpinner(discoveredDevices, DeviceListMode.DISCOVERED)
+                        appendLog("FOUND: ${ev.label}")
+                    }
+                    is BluetoothManager.Event.DiscoveryFinished -> {
+                        btnScan.text = "Scan"
+                        appendLog("DISCOVERY_FINISHED: found=${ev.foundCount}")
+                        discoveredDevices = bt.getDiscoveredDevices()
+                        showDevicesInSpinner(discoveredDevices, DeviceListMode.DISCOVERED)
+                    }
                     is BluetoothManager.Event.LineReceived -> appendLog("IN: ${ev.line}")
                     is BluetoothManager.Event.EchoReceived -> appendLog("ECHO: ${ev.line}")
                     is BluetoothManager.Event.SendRejected -> {
@@ -84,7 +106,20 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        btnScan.setOnClickListener { ensureBtPermissionsThen { getBtDevices() } }
+        btnScan.setOnClickListener {
+            ensureBtPermissionsThen {
+                val isScanningNow = try { BluetoothAdapter.getDefaultAdapter()?.isDiscovering == true } catch (_: Exception) { false }
+
+                if (!isScanningNow) {
+                    discoveredDevices = emptyList()
+                    showDevicesInSpinner(discoveredDevices, DeviceListMode.DISCOVERED)
+                    bt.startDiscovery()
+                } else {
+                    bt.stopDiscovery()
+                }
+            }
+        }
+
         btnConnect.setOnClickListener {
             ensureBtPermissionsThen {
                 val d = getSelectedDeviceOrNull()
@@ -124,16 +159,10 @@ class MainActivity : AppCompatActivity() {
         ensureBtPermissionsThen {
             try{
                 pairedDevices = bt.getPairedDevices()
-                val labels = pairedDevices.map { d ->
-                    val name = d.name ?: "Unknown"
-                    "$name (${d.address})"
+                if (listMode == DeviceListMode.PAIRED) {
+                    showDevicesInSpinner(pairedDevices, DeviceListMode.PAIRED)
                 }
 
-                spDevices.adapter = ArrayAdapter(
-                    this,
-                    android.R.layout.simple_spinner_dropdown_item,
-                    labels.ifEmpty { listOf("No paired devices") }
-                )
                 appendLog("Paired devices: ${pairedDevices.size}")
             } catch (se: SecurityException){
                 toast("Bluetooth permission required")
@@ -142,11 +171,35 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun showDevicesInSpinner(devices: List<BluetoothDevice>, mode: DeviceListMode) {
+        listMode = mode
+
+        val labels = devices.map { d ->
+            val name = try { d.name } catch (_: SecurityException) { null } ?: "Unknown"
+            val addr = try { d.address } catch (_: SecurityException) { "??:??:??:??:??:??" }
+            "$name ($addr)"
+        }
+
+        spDevices.adapter = ArrayAdapter(
+            this,
+            android.R.layout.simple_spinner_dropdown_item,
+            labels.ifEmpty {
+                if (mode == DeviceListMode.PAIRED) listOf("No paired devices")
+                else listOf("No devices found (yet)")
+            }
+        )
+    }
+
+
     private fun getSelectedDeviceOrNull(): BluetoothDevice? {
-        if (pairedDevices.isEmpty()) return null
+        val list = when (listMode) {
+            DeviceListMode.PAIRED -> pairedDevices
+            DeviceListMode.DISCOVERED -> discoveredDevices
+        }
+        if (list.isEmpty()) return null
         val pos = spDevices.selectedItemPosition
-        if (pos < 0 || pos >= pairedDevices.size) return null
-        return pairedDevices[pos]
+        if (pos < 0 || pos >= list.size) return null
+        return list[pos]
     }
 
     private fun ensureBtPermissionsThen(block: () -> Unit) {
