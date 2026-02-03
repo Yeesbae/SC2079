@@ -15,8 +15,8 @@ class CellState:
         """Compare given (x,y) position with cell state's position
 
         Args:
-            x (int): x coordinate
-            y (int): y coordinate
+            x (int): x coordinate (bottom left corner)
+            y (int): y coordinate (bottom left corner)
 
         Returns:
             bool: True if same, False otherwise

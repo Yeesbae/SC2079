@@ -5,14 +5,14 @@ from visualizer import MazeVisualizer
 
 def main():
     # Start robot at (1, 1) facing North
-    solver = MazeSolver(size_x=20, size_y=20, robot_x=1, robot_y=1, robot_direction=Direction.NORTH)
+    solver = MazeSolver(size_x=40, size_y=40, robot_x=2, robot_y=2, robot_direction=Direction.NORTH)
     
     # 2. Add 5 Obstacles (x, y, image_direction, id)
-    solver.add_obstacle(x=5, y=10, direction=Direction.SOUTH, obstacle_id=1)
-    solver.add_obstacle(x=15, y=5, direction=Direction.WEST, obstacle_id=2)
-    solver.add_obstacle(x=10, y=18, direction=Direction.SOUTH, obstacle_id=3)
-    solver.add_obstacle(x=2, y=15, direction=Direction.EAST, obstacle_id=4)
-    solver.add_obstacle(x=18, y=12, direction=Direction.WEST, obstacle_id=5)
+    solver.add_obstacle(x=6,  y=6,  direction=Direction.NORTH, obstacle_id=1)
+    solver.add_obstacle(x=30, y=6,  direction=Direction.WEST,  obstacle_id=2)
+    solver.add_obstacle(x=6,  y=30, direction=Direction.EAST,  obstacle_id=3)
+    solver.add_obstacle(x=30, y=30, direction=Direction.SOUTH, obstacle_id=4)
+    solver.add_obstacle(x=18, y=18, direction=Direction.WEST,  obstacle_id=5)
 
     # 3. Solve for optimal order and paths
     print("Calculating optimal Hamiltonian path...")
@@ -23,26 +23,33 @@ def main():
         return
 
     # 4. Setup Visualizer
-    viz = MazeVisualizer(grid_size=(20, 20), cell_pixel_size=35)
+    viz = MazeVisualizer(grid_size=(40, 40), cell_pixel_size=17)
     clock = pygame.time.Clock()
     
     path_index = 0
     running = True
+    paused = False
     
     while running:
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
+            if event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_r:
+                    path_index = 0
+                if event.key == pygame.K_SPACE:
+                    paused = not paused
 
-        # If we have path steps left, update the robot
-        if path_index < len(optimal_path):
-            current_state = optimal_path[path_index]
-            # Draw frame: Current robot pos, list of obstacles, and full path line
-            viz.draw_frame(current_state, solver.grid.obstacles, optimal_path)
+        if not paused and path_index < len(optimal_path) - 1:
+            print(optimal_path[path_index])
             path_index += 1
-        else:
-            # Path finished, just keep drawing the last frame
-            viz.draw_frame(optimal_path[-1], solver.grid.obstacles, optimal_path)
+
+        viz.draw_frame(
+            optimal_path[path_index],
+            solver.grid.obstacles,
+            optimal_path,
+            path_index
+        )
 
         clock.tick(10)
 

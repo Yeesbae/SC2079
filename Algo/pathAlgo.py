@@ -6,11 +6,11 @@ from Entities.Bot import Robot
 from Entities.Cell import CellState
 from Entities.Obstacle import Obstacle
 from Entities.Grid import Grid
-from constants import Direction, MOVE_DIRECTION, TURN_FACTOR, ITERATIONS, TURN_RADIUS, SAFE_COST
+from constants import Direction, MOVE_DIRECTION, TURN_FACTOR, ITERATIONS, TURN_RADIUS, SAFE_COST, BIG_TURN, SMALL_TURN
 from python_tsp.exact import solve_tsp_dynamic_programming
 
 
-turn_wrt_big_turns = [[0 * TURN_RADIUS, 0 * TURN_RADIUS], [4 * TURN_RADIUS, 2 * TURN_RADIUS]]
+turn_wrt_big_turns = [[0 * TURN_RADIUS, 0 * TURN_RADIUS], SMALL_TURN, BIG_TURN]
 
 # 'FW60', 'BL00', 'FW30', 'BR00', 'FW30', 'BR00', 'SNAP1_C', 'FIN'
 class MazeSolver:
@@ -21,7 +21,7 @@ class MazeSolver:
             robot_x: int,
             robot_y: int,
             robot_direction: Direction,
-            big_turn=None # the big_turn here is to allow 3-1 turn(0 - by default) | 4-2 turn(1)
+            enabled_turn: int = 1,
     ):
         # Initialize a Grid object for the arena representation
         self.grid = Grid(size_x, size_y)
@@ -30,10 +30,7 @@ class MazeSolver:
         # Create tables for paths and costs
         self.path_table = dict()
         self.cost_table = dict()
-        if big_turn is None:
-            self.big_turn = 0
-        else:
-            self.big_turn = int(big_turn)
+        self.enabled_turn = int(enabled_turn)
 
     def add_obstacle(self, x: int, y: int, direction: Direction, obstacle_id: int):
         """Add obstacle to MazeSolver object
@@ -275,8 +272,8 @@ class MazeSolver:
             else:  # consider 8 cases
                 
                 # Turning displacement is either 4-2 or 3-1
-                bigger_change = turn_wrt_big_turns[self.big_turn][0]
-                smaller_change = turn_wrt_big_turns[self.big_turn][1]
+                bigger_change = turn_wrt_big_turns[self.enabled_turn][0]
+                smaller_change = turn_wrt_big_turns[self.enabled_turn][1]
 
                 # north <-> east
                 if direction == Direction.NORTH and md == Direction.EAST:
