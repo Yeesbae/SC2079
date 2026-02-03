@@ -1,11 +1,6 @@
 from enum import Enum
 
-
 EXPANDED_CELL = 2
-
-WIDTH = 20
-HEIGHT = 20
-
 
 class Direction(int, Enum):
     NORTH = 0

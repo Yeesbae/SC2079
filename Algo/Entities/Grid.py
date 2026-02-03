@@ -1,6 +1,6 @@
 from .Cell import CellState
 from typing import List
-from constants import EXPANDED_CELL
+from constants import EXPANDED_CELL, ROBOT_HALF_CELLS
 from .Obstacle import Obstacle
 
 class Grid:
@@ -108,7 +108,7 @@ class Grid:
         Returns:
             bool: True if valid, False otherwise
         """
-        if x < 1 or x >= self.size_x - 1 or y < 1 or y >= self.size_y - 1:
+        if x < ROBOT_HALF_CELLS or x >= self.size_x - ROBOT_HALF_CELLS or y < ROBOT_HALF_CELLS or y >= self.size_y - ROBOT_HALF_CELLS:
             return False
 
         return True
