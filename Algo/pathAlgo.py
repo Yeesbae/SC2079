@@ -229,74 +229,137 @@ class MazeSolver:
         return 0
     
         
-    def get_turn_arc_points(self, start_x, start_y, start_dir, end_dir, radius=5, steps=10):
-        """
-        Returns a list of (x, y) points along the circular arc of a 90-degree turn.
-        """
-        dir_order = [Direction.NORTH, Direction.EAST, Direction.SOUTH, Direction.WEST]
-        start_idx = dir_order.index(start_dir)
-        end_idx = dir_order.index(end_dir)
+    # def get_turn_arc_points(self, start_x, start_y, start_dir, end_dir, radius=5, steps=10):
+    #     """
+    #     Returns a list of (x, y) points along the circular arc of a 90-degree turn.
+    #     """
+    #     dir_order = [Direction.NORTH, Direction.EAST, Direction.SOUTH, Direction.WEST]
+    #     start_idx = dir_order.index(start_dir)
+    #     end_idx = dir_order.index(end_dir)
 
-        delta = (end_idx - start_idx) % 4
-        if delta == 1 or delta == -3:
-            turn_dir = 'right'
-        elif delta == 3 or delta == -1:
-            turn_dir = 'left'
+    #     delta = (end_idx - start_idx) % 4
+    #     if delta == 1 or delta == -3:
+    #         turn_dir = 'right'
+    #     elif delta == 3 or delta == -1:
+    #         turn_dir = 'left'
+    #     else:
+    #         raise ValueError("Turns must be 90 degrees")
+
+    #     # Determine center of rotation
+    #     if turn_dir == 'right':
+    #         if start_dir == Direction.NORTH: cx, cy = start_x + radius, start_y; start_angle, end_angle = math.pi, math.pi/2
+    #         elif start_dir == Direction.EAST: cx, cy = start_x, start_y - radius; start_angle, end_angle = math.pi/2, 0
+    #         elif start_dir == Direction.SOUTH: cx, cy = start_x - radius, start_y; start_angle, end_angle = 0, -math.pi/2
+    #         elif start_dir == Direction.WEST: cx, cy = start_x, start_y + radius; start_angle, end_angle = -math.pi/2, -math.pi
+    #     else:  # left turn
+    #         if start_dir == Direction.NORTH: cx, cy = start_x - radius, start_y; start_angle, end_angle = 0, math.pi/2
+    #         elif start_dir == Direction.EAST: cx, cy = start_x, start_y + radius; start_angle, end_angle = -math.pi/2, 0
+    #         elif start_dir == Direction.SOUTH: cx, cy = start_x + radius, start_y; start_angle, end_angle = math.pi, math.pi/2
+    #         elif start_dir == Direction.WEST: cx, cy = start_x, start_y - radius; start_angle, end_angle = math.pi/2, math.pi
+
+    #     points = []
+    #     for i in range(steps + 1):
+    #         alpha = start_angle + (end_angle - start_angle) * (i / steps)
+    #         x = cx + radius * math.cos(alpha)
+    #         y = cy + radius * math.sin(alpha)
+    #         points.append((x, y))
+
+    #     return points
+
+    def get_arc_points_from_endpoints(
+        self,
+        start_x, start_y,
+        end_x, end_y,
+        start_dir,
+        radius=5,
+        steps=20
+    ):
+        """
+        Generate a 90° circular arc given:
+        - start position
+        - end position
+        - start direction
+        - radius
+
+        Assumes axis-aligned grid and exact quarter-circle motion.
+        """
+
+        dx = end_x - start_x
+        dy = end_y - start_y
+
+        # Sanity check: must be a quarter circle
+        if abs(dx) != radius or abs(dy) != radius:
+            raise ValueError("End point does not form a 90° arc with given radius")
+
+        # Determine arc center candidates
+        if start_dir == Direction.NORTH:
+            candidates = [
+                (start_x + radius, start_y),  # right turn
+                (start_x - radius, start_y),  # left turn
+            ]
+        elif start_dir == Direction.SOUTH:
+            candidates = [
+                (start_x - radius, start_y),
+                (start_x + radius, start_y),
+            ]
+        elif start_dir == Direction.EAST:
+            candidates = [
+                (start_x, start_y - radius),
+                (start_x, start_y + radius),
+            ]
+        elif start_dir == Direction.WEST:
+            candidates = [
+                (start_x, start_y + radius),
+                (start_x, start_y - radius),
+            ]
         else:
-            raise ValueError("Turns must be 90 degrees")
+            raise ValueError("Invalid start direction")
 
-        # Determine center of rotation
-        if turn_dir == 'right':
-            if start_dir == Direction.NORTH: cx, cy = start_x + radius, start_y; start_angle, end_angle = math.pi, math.pi/2
-            elif start_dir == Direction.EAST: cx, cy = start_x, start_y - radius; start_angle, end_angle = math.pi/2, 0
-            elif start_dir == Direction.SOUTH: cx, cy = start_x - radius, start_y; start_angle, end_angle = 0, -math.pi/2
-            elif start_dir == Direction.WEST: cx, cy = start_x, start_y + radius; start_angle, end_angle = -math.pi/2, -math.pi
-        else:  # left turn
-            if start_dir == Direction.NORTH: cx, cy = start_x - radius, start_y; start_angle, end_angle = 0, math.pi/2
-            elif start_dir == Direction.EAST: cx, cy = start_x, start_y + radius; start_angle, end_angle = -math.pi/2, 0
-            elif start_dir == Direction.SOUTH: cx, cy = start_x + radius, start_y; start_angle, end_angle = math.pi, math.pi/2
-            elif start_dir == Direction.WEST: cx, cy = start_x, start_y - radius; start_angle, end_angle = math.pi/2, math.pi
+        # Pick the center that places both start and end on the circle
+        cx = cy = None
+        for cxx, cyy in candidates:
+            if (
+                abs((start_x - cxx)**2 + (start_y - cyy)**2 - radius**2) < 1e-6 and
+                abs((end_x - cxx)**2 + (end_y - cyy)**2 - radius**2) < 1e-6
+            ):
+                cx, cy = cxx, cyy
+                break
 
+        if cx is None:
+            raise RuntimeError("No valid arc center found")
+
+        # Compute angles
+        start_angle = math.atan2(start_y - cy, start_x - cx)
+        end_angle   = math.atan2(end_y - cy, end_x - cx)
+
+        # Ensure 90° sweep (choose shortest direction)
+        delta = end_angle - start_angle
+        if delta > math.pi:
+            delta -= 2 * math.pi
+        elif delta < -math.pi:
+            delta += 2 * math.pi
+
+        # Generate arc points
         points = []
         for i in range(steps + 1):
-            alpha = start_angle + (end_angle - start_angle) * (i / steps)
-            x = cx + radius * math.cos(alpha)
-            y = cy + radius * math.sin(alpha)
+            t = i / steps
+            angle = start_angle + delta * t
+            x = cx + radius * math.cos(angle)
+            y = cy + radius * math.sin(angle)
             points.append((x, y))
 
         return points
 
-    def is_turn_safe(self, start_x, start_y, start_dir, end_dir, radius=5):
-        arc_points = self.get_turn_arc_points(start_x, start_y, start_dir, end_dir, radius)
+
+    def is_arc_safe(self, arc_points):
         for x, y in arc_points:
-            if not self.grid.reachable(round(x), round(y)):
+            # floor is safer than round for collision detection
+            if not self.grid.reachable(math.floor(x), math.floor(y)):
                 return False
         return True
 
     def get_neighbors(self, x, y, direction):
-        """
-        Return a list of tuples:
-        (newX, newY, new_direction, safe_cost)
-
-        - Moves forward/back in the same direction
-        - Turns 90° left/right if safe along the circular arc
-        """
-        forward_dx, forward_dy = 0, 0
-        if direction == Direction.NORTH:
-            forward_dy = 1
-        elif direction == Direction.SOUTH:
-            forward_dy = -1
-        elif direction == Direction.EAST:
-            forward_dx = 1
-        elif direction == Direction.WEST:
-            forward_dx = -1
-
-        intermediate_x = x + forward_dx
-        intermediate_y = y + forward_dy
-
         neighbors = []
-
-        dir_order = [Direction.NORTH, Direction.EAST, Direction.SOUTH, Direction.WEST]
 
         # --- Straight moves ---
         for dx, dy, md in MOVE_DIRECTION:
@@ -310,153 +373,49 @@ class MazeSolver:
                     safe_cost = self.get_safe_cost(x - dx, y - dy)
                     neighbors.append((x - dx, y - dy, md, safe_cost))
 
-            else:  # --- Turning moves ---
-                # Compute the direction difference
-                start_idx = dir_order.index(direction)
-                end_idx = dir_order.index(md)
-                delta = (end_idx - start_idx) % 4
+        # --- Hardcoded 90° forward and reverse turns ---
+        x_change = turn_wrt_big_turns[self.enabled_turn][0]
+        y_change = turn_wrt_big_turns[self.enabled_turn][1]
 
-                # Only attempt left/right 90° turns
-                if delta == 1 or delta == 3:
-                    if self.is_turn_safe(x, y, direction, md, radius=5):
-                        # Get final position after turn (end of arc)
-                        nx, ny = self.get_turn_arc_points(x, y, direction, md, radius=5, steps=1)[-1]
-                        safe_cost = self.get_safe_cost(round(nx), round(ny)) + 10
-                        neighbors.append((round(nx), round(ny), md, safe_cost))
+        # Map of valid turns (dx, dy) → resulting end direction
+        turn_map = {
+            Direction.NORTH: [
+                ((x_change, y_change), Direction.EAST),
+                ((-x_change, y_change), Direction.WEST),
+                ((x_change, -y_change), Direction.WEST),
+                ((-x_change, -y_change), Direction.EAST),
+            ],
+            Direction.SOUTH: [
+                ((x_change, -y_change), Direction.EAST),
+                ((-x_change, -y_change), Direction.WEST),
+                ((x_change, y_change), Direction.WEST),
+                ((-x_change, y_change), Direction.EAST),
+            ],
+            Direction.EAST: [
+                ((x_change, y_change), Direction.NORTH),
+                ((-x_change, y_change), Direction.SOUTH),
+                ((-x_change, -y_change), Direction.NORTH),
+                ((x_change, -y_change), Direction.SOUTH),
+            ],
+            Direction.WEST: [
+                ((-x_change, y_change), Direction.NORTH),
+                ((-x_change, -y_change), Direction.SOUTH),
+                ((x_change, y_change), Direction.SOUTH),
+                ((x_change, -y_change), Direction.NORTH), 
+            ]
+        }
 
+        # Iterate over all possible turn displacements
+        for (dx, dy), end_dir in turn_map[direction]:
+            arc_points = self.get_arc_points_from_endpoints(x, y, x + dx, y + dy, direction, radius=x_change, steps=20)
+
+            # Only append if the arc is safe
+            if self.is_arc_safe(arc_points):
+                safe_cost = self.get_safe_cost(x + dx, y + dy) + 10
+                neighbors.append((x + dx, y + dy, end_dir, safe_cost))
+                
         return neighbors
 
-
-    # def get_neighbors(self, x, y, direction):  # TODO: see the behavior of the robot and adjust...
-    #     """
-    #     Return a list of tuples with format:
-    #     newX, newY, new_direction
-    #     """
-    #     # Neighbors have the following format: {newX, newY, movement direction, safe cost}
-    #     # Neighbors are coordinates that fulfill the following criteria:
-    #     # If moving in the same direction:
-    #     #   - Valid position within bounds
-    #     #   - Must be at least 4 units away in total (x+y) 
-    #     #   - Furthest distance must be at least 3 units away (x or y)
-    #     # If it is exactly 2 units away in both x and y directions, safe cost = SAFECOST. Else, safe cost = 0
-
-    #     forward_dx, forward_dy = 0, 0
-    #     if direction == Direction.NORTH:
-    #         forward_dy = 1
-    #     elif direction == Direction.SOUTH:
-    #         forward_dy = -1
-    #     elif direction == Direction.EAST:
-    #         forward_dx = 1
-    #     elif direction == Direction.WEST:
-    #         forward_dx = -1
-        
-    #     intermediate_x = x + forward_dx
-    #     intermediate_y = y + forward_dy
-
-    #     neighbors = []
-    #     # Assume that after following this direction, the car direction is EXACTLY md
-    #     for dx, dy, md in MOVE_DIRECTION:
-    #         if md == direction:  # if the new direction == md
-    #             # Check for valid position
-    #             if self.grid.reachable(x + dx, y + dy):  # go forward;
-    #                 # Get safe cost of destination
-    #                 safe_cost = self.get_safe_cost(x + dx, y + dy)
-    #                 neighbors.append((x + dx, y + dy, md, safe_cost))
-    #             # Check for valid position
-    #             if self.grid.reachable(x - dx, y - dy):  # go back;
-    #                 # Get safe cost of destination
-    #                 safe_cost = self.get_safe_cost(x - dx, y - dy)
-    #                 neighbors.append((x - dx, y - dy, md, safe_cost))
-
-    #         else:  # consider 8 cases
-                
-    #             # Turning displacement is 5-5
-    #             bigger_change = turn_wrt_big_turns[self.enabled_turn][0]
-    #             smaller_change = turn_wrt_big_turns[self.enabled_turn][1]
-
-    #             # north <-> east
-    #             if direction == Direction.NORTH and md == Direction.EAST:
-
-    #                 # Check for valid position
-    #                 if self.grid.reachable(intermediate_x, intermediate_y) and self.grid.reachable(x + bigger_change, y + smaller_change, turn = True) and self.grid.reachable(x, y, preTurn = True):
-    #                     # Get safe cost of destination
-    #                     safe_cost = self.get_safe_cost(x + bigger_change, y + smaller_change)
-    #                     neighbors.append((x + bigger_change, y + smaller_change, md, safe_cost + 10))
-
-    #                 # Check for valid position
-    #                 if self.grid.reachable(intermediate_x, intermediate_y) and self.grid.reachable(x - smaller_change, y - bigger_change, turn = True) and self.grid.reachable(x, y, preTurn = True):
-    #                     # Get safe cost of destination
-    #                     safe_cost = self.get_safe_cost(x - smaller_change, y - bigger_change)
-    #                     neighbors.append((x - smaller_change, y - bigger_change, md, safe_cost + 10))
-
-    #             if direction == Direction.EAST and md == Direction.NORTH:
-    #                 if self.grid.reachable(intermediate_x, intermediate_y) and self.grid.reachable(x + smaller_change, y + bigger_change, turn = True) and self.grid.reachable(x, y, preTurn = True):
-    #                     safe_cost = self.get_safe_cost(x + smaller_change, y + bigger_change)
-    #                     neighbors.append((x + smaller_change, y + bigger_change, md, safe_cost + 10))
-
-    #                 if self.grid.reachable(intermediate_x, intermediate_y) and self.grid.reachable(x - bigger_change, y - smaller_change, turn = True) and self.grid.reachable(x, y, preTurn = True):
-    #                     safe_cost = self.get_safe_cost(x - bigger_change, y - smaller_change)
-    #                     neighbors.append((x - bigger_change, y - smaller_change, md, safe_cost + 10))
-
-    #             # east <-> south
-    #             if direction == Direction.EAST and md == Direction.SOUTH:
-                    
-    #                 if self.grid.reachable(intermediate_x, intermediate_y) and self.grid.reachable(x + smaller_change, y - bigger_change, turn = True) and self.grid.reachable(x, y, preTurn = True):
-    #                     safe_cost = self.get_safe_cost(x + smaller_change, y - bigger_change)
-    #                     neighbors.append((x + smaller_change, y - bigger_change, md, safe_cost + 10))
-
-    #                 if self.grid.reachable(intermediate_x, intermediate_y) and self.grid.reachable(x - bigger_change, y + smaller_change, turn = True) and self.grid.reachable(x, y, preTurn = True):
-    #                     safe_cost = self.get_safe_cost(x - bigger_change, y + smaller_change)
-    #                     neighbors.append((x - bigger_change, y + smaller_change, md, safe_cost + 10))
-
-    #             if direction == Direction.SOUTH and md == Direction.EAST:
-    #                 if self.grid.reachable(intermediate_x, intermediate_y) and self.grid.reachable(x + bigger_change, y - smaller_change, turn = True) and self.grid.reachable(x, y, preTurn = True):
-    #                     safe_cost = self.get_safe_cost(x + bigger_change, y - smaller_change)
-    #                     neighbors.append((x + bigger_change, y - smaller_change, md, safe_cost + 10))
-
-    #                 if self.grid.reachable(intermediate_x, intermediate_y) and self.grid.reachable(x - smaller_change, y + bigger_change, turn = True) and self.grid.reachable(x, y, preTurn = True):
-    #                     safe_cost = self.get_safe_cost(x - smaller_change, y + bigger_change)
-    #                     neighbors.append((x - smaller_change, y + bigger_change, md, safe_cost + 10))
-
-    #             # south <-> west
-    #             if direction == Direction.SOUTH and md == Direction.WEST:
-    #                 if self.grid.reachable(intermediate_x, intermediate_y) and self.grid.reachable(x - bigger_change, y - smaller_change, turn = True) and self.grid.reachable(x, y, preTurn = True):
-    #                     safe_cost = self.get_safe_cost(x - bigger_change, y - smaller_change)
-    #                     neighbors.append((x - bigger_change, y - smaller_change, md, safe_cost + 10))
-
-    #                 if self.grid.reachable(intermediate_x, intermediate_y) and self.grid.reachable(x + smaller_change, y + bigger_change, turn = True) and self.grid.reachable(x, y, preTurn = True):
-    #                     safe_cost = self.get_safe_cost(x + smaller_change, y + bigger_change)
-    #                     neighbors.append((x + smaller_change, y + bigger_change, md, safe_cost + 10))
-
-    #             if direction == Direction.WEST and md == Direction.SOUTH:
-    #                 if self.grid.reachable(intermediate_x, intermediate_y) and self.grid.reachable(x - smaller_change, y - bigger_change, turn = True) and self.grid.reachable(x, y, preTurn = True):
-    #                     safe_cost = self.get_safe_cost(x - smaller_change, y - bigger_change)
-    #                     neighbors.append((x - smaller_change, y - bigger_change, md, safe_cost + 10))
-
-    #                 if self.grid.reachable(intermediate_x, intermediate_y) and self.grid.reachable(x + bigger_change, y + smaller_change, turn = True) and self.grid.reachable(x, y, preTurn = True):
-    #                     safe_cost = self.get_safe_cost(x + bigger_change, y + smaller_change)
-    #                     neighbors.append((x + bigger_change, y + smaller_change, md, safe_cost + 10))
-
-    #             # west <-> north
-    #             if direction == Direction.WEST and md == Direction.NORTH:
-    #                 if self.grid.reachable(intermediate_x, intermediate_y) and self.grid.reachable(x - smaller_change, y + bigger_change, turn = True) and self.grid.reachable(x, y, preTurn = True):
-    #                     safe_cost = self.get_safe_cost(x - smaller_change, y + bigger_change)
-    #                     neighbors.append((x - smaller_change, y + bigger_change, md, safe_cost + 10))
-
-    #                 if self.grid.reachable(intermediate_x, intermediate_y) and self.grid.reachable(x + bigger_change, y - smaller_change, turn = True) and self.grid.reachable(x, y, preTurn = True):
-    #                     safe_cost = self.get_safe_cost(x + bigger_change, y - smaller_change)
-    #                     neighbors.append((x + bigger_change, y - smaller_change, md, safe_cost + 10))
-
-    #             if direction == Direction.NORTH and md == Direction.WEST:
-    #                 if self.grid.reachable(intermediate_x, intermediate_y) and self.grid.reachable(x + smaller_change, y - bigger_change, turn = True) and self.grid.reachable(x, y, preTurn = True):
-    #                     safe_cost = self.get_safe_cost(x + smaller_change, y - bigger_change)
-    #                     neighbors.append((x + smaller_change, y - bigger_change, md, safe_cost + 10))
-
-    #                 if self.grid.reachable(intermediate_x, intermediate_y) and self.grid.reachable(x - bigger_change, y + smaller_change, turn = True) and self.grid.reachable(x, y, preTurn = True):
-    #                     safe_cost = self.get_safe_cost(x - bigger_change, y + smaller_change)
-    #                     neighbors.append((x - bigger_change, y + smaller_change, md, safe_cost + 10))
-
-    #     return neighbors
 
     def path_cost_generator(self, states: List[CellState]):
         """Generate the path cost between the input states and update the tables accordingly
