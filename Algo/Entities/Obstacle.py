@@ -1,6 +1,6 @@
 from .Cell import CellState
 from typing import List
-from constants import Direction, EXPANDED_CELL, SCREENSHOT_COST, OPTIMAL_IMAGE_VIEWING_DISTANCE
+from constants import Direction, SCREENSHOT_COST, OPTIMAL_IMAGE_VIEWING_DISTANCE
 from Util.helper import is_valid
 
 class Obstacle(CellState):

@@ -1,7 +1,5 @@
 from enum import Enum
 
-EXPANDED_CELL = 2
-
 class Direction(int, Enum):
     NORTH = 0
     EAST = 2

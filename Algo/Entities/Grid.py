@@ -1,6 +1,6 @@
 from .Cell import CellState
 from typing import List
-from constants import EXPANDED_CELL, ROBOT_HALF_CELLS
+from constants import ROBOT_HALF_CELLS
 from .Obstacle import Obstacle
 
 class Grid:
@@ -80,13 +80,13 @@ class Grid:
             # if max(abs(ob.x - x), abs(ob.y - y)) < EXPANDED_CELL * 2 + 1:
 
             if turn:
-                if max(abs(ob.x - x), abs(ob.y - y)) < EXPANDED_CELL * 2 + 1:
+                if max(abs(ob.x - x), abs(ob.y - y)) < ROBOT_HALF_CELLS * 2 + 1:
                     # if ob.x == 0 and ob.y == 10 and x == 1 and y == 12:
                     #     print(f"ob.x: {ob.x} ob.y: {ob.y} x: {x} y:{y} Triggered less than 3 max units trap")
                     return False
                 
             if preTurn:
-                if max(abs(ob.x - x), abs(ob.y - y)) < EXPANDED_CELL * 2 + 1:
+                if max(abs(ob.x - x), abs(ob.y - y)) < ROBOT_HALF_CELLS * 2 + 1:
                     # if ob.x == 0 and ob.y == 10 and x == 1 and y == 12:
                     #     print(f"ob.x: {ob.x} ob.y: {ob.y} x: {x} y:{y} Triggered less than 3 max units trap")
                     return False

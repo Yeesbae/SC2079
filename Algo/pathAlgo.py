@@ -6,11 +6,11 @@ from Entities.Bot import Robot
 from Entities.Cell import CellState
 from Entities.Obstacle import Obstacle
 from Entities.Grid import Grid
-from constants import Direction, MOVE_DIRECTION, TURN_FACTOR, ITERATIONS, TURN_RADIUS, SAFE_COST, BIG_TURN, SMALL_TURN
+from constants import Direction, MOVE_DIRECTION, TURN_FACTOR, ITERATIONS, TURN_RADIUS, SAFE_COST, SMALL_TURN
 from python_tsp.exact import solve_tsp_dynamic_programming
 
 
-turn_wrt_big_turns = [[0 * TURN_RADIUS, 0 * TURN_RADIUS], SMALL_TURN, BIG_TURN]
+turn_wrt_big_turns = [[0 * TURN_RADIUS, 0 * TURN_RADIUS], SMALL_TURN]
 
 # 'FW60', 'BL00', 'FW30', 'BR00', 'FW30', 'BR00', 'SNAP1_C', 'FIN'
 class MazeSolver:
@@ -228,44 +228,6 @@ class MazeSolver:
 
         return 0
     
-        
-    # def get_turn_arc_points(self, start_x, start_y, start_dir, end_dir, radius=5, steps=10):
-    #     """
-    #     Returns a list of (x, y) points along the circular arc of a 90-degree turn.
-    #     """
-    #     dir_order = [Direction.NORTH, Direction.EAST, Direction.SOUTH, Direction.WEST]
-    #     start_idx = dir_order.index(start_dir)
-    #     end_idx = dir_order.index(end_dir)
-
-    #     delta = (end_idx - start_idx) % 4
-    #     if delta == 1 or delta == -3:
-    #         turn_dir = 'right'
-    #     elif delta == 3 or delta == -1:
-    #         turn_dir = 'left'
-    #     else:
-    #         raise ValueError("Turns must be 90 degrees")
-
-    #     # Determine center of rotation
-    #     if turn_dir == 'right':
-    #         if start_dir == Direction.NORTH: cx, cy = start_x + radius, start_y; start_angle, end_angle = math.pi, math.pi/2
-    #         elif start_dir == Direction.EAST: cx, cy = start_x, start_y - radius; start_angle, end_angle = math.pi/2, 0
-    #         elif start_dir == Direction.SOUTH: cx, cy = start_x - radius, start_y; start_angle, end_angle = 0, -math.pi/2
-    #         elif start_dir == Direction.WEST: cx, cy = start_x, start_y + radius; start_angle, end_angle = -math.pi/2, -math.pi
-    #     else:  # left turn
-    #         if start_dir == Direction.NORTH: cx, cy = start_x - radius, start_y; start_angle, end_angle = 0, math.pi/2
-    #         elif start_dir == Direction.EAST: cx, cy = start_x, start_y + radius; start_angle, end_angle = -math.pi/2, 0
-    #         elif start_dir == Direction.SOUTH: cx, cy = start_x + radius, start_y; start_angle, end_angle = math.pi, math.pi/2
-    #         elif start_dir == Direction.WEST: cx, cy = start_x, start_y - radius; start_angle, end_angle = math.pi/2, math.pi
-
-    #     points = []
-    #     for i in range(steps + 1):
-    #         alpha = start_angle + (end_angle - start_angle) * (i / steps)
-    #         x = cx + radius * math.cos(alpha)
-    #         y = cy + radius * math.sin(alpha)
-    #         points.append((x, y))
-
-    #     return points
-
     def get_arc_points_from_endpoints(
         self,
         start_x, start_y,
@@ -275,7 +237,7 @@ class MazeSolver:
         steps=20
     ):
         """
-        Generate a 90° circular arc given:
+        Generate an arc of a quadrant of a circle given:
         - start position
         - end position
         - start direction
@@ -405,11 +367,9 @@ class MazeSolver:
             ]
         }
 
-        # Iterate over all possible turn displacements
         for (dx, dy), end_dir in turn_map[direction]:
             arc_points = self.get_arc_points_from_endpoints(x, y, x + dx, y + dy, direction, radius=x_change, steps=20)
 
-            # Only append if the arc is safe
             if self.is_arc_safe(arc_points):
                 safe_cost = self.get_safe_cost(x + dx, y + dy) + 10
                 neighbors.append((x + dx, y + dy, end_dir, safe_cost))
