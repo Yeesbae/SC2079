@@ -138,8 +138,8 @@ data class ArenaState(
 
     companion object {
         /** Default arena dimensions */
-        const val DEFAULT_WIDTH = 20
-        const val DEFAULT_HEIGHT = 20
+        const val DEFAULT_WIDTH = ArenaConfig.GRID_SIZE
+        const val DEFAULT_HEIGHT = ArenaConfig.GRID_SIZE
 
         fun empty(width: Int = DEFAULT_WIDTH, height: Int = DEFAULT_HEIGHT): ArenaState {
             return ArenaState(width, height, List(width * height) { Cell.EMPTY })
@@ -191,7 +191,6 @@ data class PathExecutionState(
     val poses: List<RobotPose> = emptyList(),
     val currentIndex: Int = -1,
     val isPlaying: Boolean = false,
-    val speed: Float = 1.0f
 ) {
     val isActive: Boolean get() = poses.isNotEmpty()
     val isComplete: Boolean get() = currentIndex >= poses.lastIndex
@@ -232,8 +231,24 @@ data class ObstacleState(
     val obstacleId: String get() = "B$id"
 }
 
+data class TaggedObstacleRectModel(
+    val groupId: Int,
+    val bottomLeftX: Int,
+    val bottomLeftY: Int,
+    val width: Int,
+    val height: Int,
+    val imageId: String? = null,
+    val facing: RobotDirection? = null
+)
+
+data class ObstacleGroupMeta(
+    val groupId: Int,                 // 1..8
+    val imageId: String? = null,
+    val facing: RobotDirection? = null
+)
+
 object ArenaConfig {
-    const val GRID_SIZE = 20
+    const val GRID_SIZE = 40
     const val MAX_OBSTACLES = 8
 }
 
@@ -269,6 +284,8 @@ data class AppState(
 
     // Obstacle blocks (for easy UI access - MDP uses 8 obstacles)
     val obstacleBlocks: List<ObstacleState> = emptyList(),
+    val taggedObstacleRects: List<TaggedObstacleRectModel> = emptyList(),
+    val obstacleGroupMeta: Map<Int, ObstacleGroupMeta> = emptyMap(),
 
     // Image detections
     val detections: List<ImageDetection> = emptyList(),

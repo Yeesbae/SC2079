@@ -1,6 +1,6 @@
 package com.example.sc2079_ay2526s2_grp08.protocol
 
-import com.example.sc2079_ay2526s2_grp08.domain.RobotDirection
+import com.example.sc2079_ay2526s2_grp08.domain.util.DirectionUtil
 
 /**
  * Encodes outgoing messages to protocol strings.
@@ -47,6 +47,14 @@ object ProtocolEncoder {
         is Outgoing.MoveBackwardSteps -> "${cmdBackward},${msg.steps}"
         is Outgoing.TurnDegrees -> "t,${msg.degrees}"
 
+        // Format: "TAG,B1,bl=(x,y),w=2,h=2,img=11,face=N"
+        is Outgoing.TaggedObstacleRect -> {
+            val id = "B${msg.groupId}"
+            val img = msg.imageId ?: ""
+            val face = msg.facing?.let { DirectionUtil.toProtocolChar(it) } ?: ""
+            "TAG,$id,(${msg.bottomLeftX},${msg.bottomLeftY}),${msg.width},${msg.height},$img,$face"
+        }
+
         // Obstacle placement (C.6): "ADD,B1,(10,6)"
         is Outgoing.AddObstacle -> "ADD,${msg.obstacleId},(${msg.x},${msg.y})"
 
@@ -54,13 +62,13 @@ object ProtocolEncoder {
         is Outgoing.RemoveObstacle -> "SUB,${msg.obstacleId}"
 
         // Target face annotation (C.7): "FACE,B2,N"
-        is Outgoing.SetObstacleFace -> "FACE,${msg.obstacleId},${directionToChar(msg.face)}"
+        is Outgoing.SetObstacleFace -> "FACE,${msg.obstacleId},${DirectionUtil.toProtocolChar(msg.face)}"
 
         // Robot position
-        is Outgoing.SetRobotPosition -> "ROBOT,${msg.x},${msg.y},${directionToChar(msg.direction)}"
+        is Outgoing.SetRobotPosition -> "ROBOT,${msg.x},${msg.y},${DirectionUtil.toProtocolChar(msg.direction)}"
 
         // Arena request
-        is Outgoing.RequestArenaInfo -> cmdRequestArena
+        is Outgoing.RequestSync -> cmdRequestArena
 
         // Algorithm control
         is Outgoing.StartExploration -> cmdStartExploration
@@ -75,13 +83,6 @@ object ProtocolEncoder {
 
         // Raw passthrough
         is Outgoing.Raw -> msg.line.trim()
-    }
-
-    private fun directionToChar(dir: RobotDirection): String = when (dir) {
-        RobotDirection.NORTH -> "N"
-        RobotDirection.EAST -> "E"
-        RobotDirection.SOUTH -> "S"
-        RobotDirection.WEST -> "W"
     }
 
     /**

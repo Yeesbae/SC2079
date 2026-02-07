@@ -9,15 +9,7 @@ sealed interface Incoming {
         val x: Int,
         val y: Int,
         val direction: RobotDirection
-    ) : Incoming {
-        /** Direction as degrees (0=N, 90=E, 180=S, 270=W) */
-        val directionDeg: Int get() = when (direction) {
-            RobotDirection.NORTH -> 0
-            RobotDirection.EAST -> 90
-            RobotDirection.SOUTH -> 180
-            RobotDirection.WEST -> 270
-        }
-    }
+    ) : Incoming
 
     data class TargetDetected(
         val obstacleId: String,         // e.g., "B2", "1", etc.
@@ -66,6 +58,16 @@ sealed interface Outgoing {
     /** Turn by specific angle in degrees (optional extension) */
     data class TurnDegrees(val degrees: Int) : Outgoing
 
+    data class TaggedObstacleRect(
+        val groupId: Int,
+        val bottomLeftX: Int,
+        val bottomLeftY: Int,
+        val width: Int,
+        val height: Int,
+        val imageId: String? = null,
+        val facing: RobotDirection? = null
+    ) : Outgoing
+
     data class AddObstacle(
         val obstacleId: String,     // e.g., "B1", "1"
         val x: Int,
@@ -85,7 +87,7 @@ sealed interface Outgoing {
         val direction: RobotDirection
     ) : Outgoing
 
-    object RequestArenaInfo : Outgoing
+    object RequestSync : Outgoing
 
     object StartExploration : Outgoing
     object StartFastestPath : Outgoing

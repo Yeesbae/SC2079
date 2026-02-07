@@ -2,6 +2,7 @@ package com.example.sc2079_ay2526s2_grp08.protocol
 
 import com.example.sc2079_ay2526s2_grp08.domain.RobotDirection
 import com.example.sc2079_ay2526s2_grp08.domain.RobotPose
+import com.example.sc2079_ay2526s2_grp08.domain.util.DirectionUtil
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -329,22 +330,5 @@ object ProtocolParser {
         return Incoming.GridBinary(w, h, cells)
     }
 
-    private fun parseDirection(s: String): RobotDirection? {
-        return when (s.uppercase().trim()) {
-            "N", "NORTH" -> RobotDirection.NORTH
-            "E", "EAST" -> RobotDirection.EAST
-            "S", "SOUTH" -> RobotDirection.SOUTH
-            "W", "WEST" -> RobotDirection.WEST
-            "0" -> RobotDirection.NORTH
-            "90" -> RobotDirection.EAST
-            "180" -> RobotDirection.SOUTH
-            "270" -> RobotDirection.WEST
-            else -> {
-                // Try parsing as degrees
-                s.toIntOrNull()?.let { deg ->
-                    RobotDirection.fromDegrees(deg)
-                }
-            }
-        }
-    }
+    private fun parseDirection(s: String): RobotDirection? = DirectionUtil.fromProtocolToken(s)
 }

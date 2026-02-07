@@ -71,6 +71,7 @@ class BluetoothManager (private val appCtx: Context) {
     fun buildRequestDiscoverableIntent(durationSec: Int = 300): Intent {
         return Intent(BluetoothAdapter.ACTION_REQUEST_DISCOVERABLE).apply {
             putExtra(BluetoothAdapter.EXTRA_DISCOVERABLE_DURATION, durationSec.coerceIn(1, 300))
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         }
     }
 
@@ -347,21 +348,9 @@ class BluetoothManager (private val appCtx: Context) {
     }
 
     private fun handleSessionEnded(reason: DisconnectReason, msg: String?) {
-        if (mode == Mode.SERVER && serverRunning && reason == DisconnectReason.REMOTE && !intentionalDisconnect) {
-            onEvent?.invoke(Event.Disconnected(reason, msg))
-            return
-        }
-
         onEvent?.invoke(Event.Disconnected(reason, msg))
         if (mode == Mode.CLIENT) mode = Mode.NONE
         setState(State.DISCONNECTED, msg)
-
-        if (!intentionalDisconnect) {
-            Thread {
-                try { Thread.sleep(150) } catch (_: Exception) {}
-                startServer()
-            }.start()
-        }
     }
 
     private fun setState(newState: State, msg: String? = null) {

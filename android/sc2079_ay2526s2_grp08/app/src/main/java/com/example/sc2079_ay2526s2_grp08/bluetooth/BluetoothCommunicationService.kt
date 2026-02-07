@@ -5,6 +5,7 @@ import java.io.BufferedInputStream
 import java.io.BufferedOutputStream
 import java.io.ByteArrayOutputStream
 import java.util.ArrayDeque
+import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.atomic.AtomicBoolean
 
 internal class BluetoothCommunicationService(
@@ -17,6 +18,8 @@ internal class BluetoothCommunicationService(
     private var inStream: BufferedInputStream? = null
     private var outStream: BufferedOutputStream? = null
 
+    private var writeQueue = LinkedBlockingQueue<String>(256)
+    private var writerThread: Thread? = null
     private var readerThread: Thread? = null
     private val running = AtomicBoolean(false)
 
@@ -36,31 +39,30 @@ internal class BluetoothCommunicationService(
         inStream = BufferedInputStream(s.inputStream)
         outStream = BufferedOutputStream(s.outputStream)
 
+        writeQueue.clear()
+
         running.set(true)
+        startWriterLoop()
         startReaderLoop()
     }
 
     fun sendLine(lineNoNewline: String): Boolean {
-        val os = outStream ?: return false
         if (!running.get() || socket == null) return false
 
         val toSend = lineNoNewline.trim()
+        if (toSend.isEmpty()) return true
+
         echoTracker.rememberSent(toSend)
 
-        Thread {
-            try {
-                synchronized(writeLock) {
-                    os.write((toSend + "\n").toByteArray(Charsets.UTF_8))
-                    os.flush()
-                }
-            } catch (e: Exception) {
-                onSendError?.invoke(e.message ?: e.javaClass.simpleName)
-                // Treat as session failure (remote may be gone)
-                closeSessionInternal(BluetoothManager.DisconnectReason.ERROR, "Send failed: ${e.message ?: e.javaClass.simpleName}")
-            }
-        }.start()
-
-        return true
+        val ok = writeQueue.offer(toSend)
+        if (!ok){
+            onSendError?.invoke("Send Queue Full")
+            closeSessionInternal(
+                BluetoothManager.DisconnectReason.ERROR,
+                "Send Queue Fail"
+            )
+        }
+        return ok
     }
 
     fun closeSession(reason: BluetoothManager.DisconnectReason, msg: String?) {
@@ -70,6 +72,30 @@ internal class BluetoothCommunicationService(
     fun resetParsers() {
         echoTracker.reset()
         lineBuilder.reset()
+    }
+
+    private fun startWriterLoop() {
+        writerThread = Thread {
+            while (running.get()){
+                val os = outStream ?: break
+                try {
+                    val line = writeQueue.take()
+                    synchronized(writeLock) {
+                        os.write((line + "\n").toByteArray(Charsets.UTF_8))
+                        os.flush()
+                }
+            } catch (ie: InterruptedException) {
+                break
+            } catch (e: Exception) {
+                    val msg = e.message ?: e.javaClass.simpleName
+                    onSendError?.invoke(msg)
+                    closeSessionInternal(
+                        BluetoothManager.DisconnectReason.ERROR,
+                        "Send failed: $msg")
+                    break
+                }
+            }
+        }.also { it.start() }
     }
 
     private fun startReaderLoop() {
@@ -120,9 +146,14 @@ internal class BluetoothCommunicationService(
 
         running.set(false)
 
-        val t = readerThread
+        val wt = writerThread
+        writerThread = null
+        try { wt?.interrupt() } catch (_: Exception) {}
+        writeQueue.clear()
+
+        val rt = readerThread
         readerThread = null
-        try { t?.interrupt() } catch (_: Exception) {}
+        try { rt?.interrupt() } catch (_: Exception) {}
 
         try { inStream?.close() } catch (_: Exception) {}
         try { outStream?.close() } catch (_: Exception) {}
@@ -132,8 +163,11 @@ internal class BluetoothCommunicationService(
         outStream = null
         socket = null
 
-        if (t != null && t != Thread.currentThread()) {
-            try { t.join(300) } catch (_: Exception) {}
+        if (wt != null && wt != Thread.currentThread()) {
+            try { wt.join(300) } catch (_: Exception) {}
+        }
+        if (rt != null && rt != Thread.currentThread()) {
+            try { rt.join(300) } catch (_: Exception) {}
         }
 
         try { lineBuilder.flush { line -> onLine?.invoke(line, false) } } catch (_: Exception) {}
