@@ -1,0 +1,13 @@
+train: ../train/images
+val: ../valid/images
+test: ../test/images
+
+nc: 31
+names: ['Alphabet A', 'Alphabet B', 'Alphabet C', 'Alphabet D', 'Alphabet E', 'Alphabet F', 'Alphabet G', 'Alphabet H', 'Alphabet S', 'Alphabet T', 'Alphabet U', 'Alphabet v', 'Alphabet w', 'Alphabet x', 'Alphabet y', 'Alphabet z', 'Bulls Eye', 'Stop', 'down arrow', 'eight', 'five', 'four', 'left arrow', 'nine', 'one', 'right arrow', 'seven', 'six', 'three', 'two', 'up arrow']
+
+roboflow:
+  workspace: mdp-1nx9p
+  project: sc2079-qyssz
+  version: 1
+  license: CC BY 4.0
+  url: https://universe.roboflow.com/mdp-1nx9p/sc2079-qyssz/dataset/1
