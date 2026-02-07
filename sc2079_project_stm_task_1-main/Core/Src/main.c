@@ -10,6 +10,7 @@
 #include "setup.h"
 #include "motor_control.h"
 #include <stdio.h>
+#include <string.h>
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -127,7 +128,9 @@ float temp3 = 0;
 int temp4 = 0;
 int temp5 = 0;
 
-uint8_t aRxBuffer[5] = {0};
+uint8_t aRxBuffer[5] = {0};          // ISR writes here
+uint8_t rxBuffer_working[5] = {0};  // Task reads from here
+osSemaphoreId_t uartRxSemaphoreHandle;  // Binary semaphore for UART data ready
 int flagDone = 0;
 int magnitude = 0;
 
@@ -322,6 +325,11 @@ int main(void)
   /* USER CODE END RTOS_MUTEX */
 
   /* USER CODE BEGIN RTOS_SEMAPHORES */
+  /* Create binary semaphore for UART RX signaling */
+  uartRxSemaphoreHandle = osSemaphoreNew(1, 0, NULL);  // max=1, initial=0
+  if (uartRxSemaphoreHandle == NULL) {
+    Error_Handler();  // Failed to create semaphore
+  }
   /* USER CODE END RTOS_SEMAPHORES */
 
   /* USER CODE BEGIN RTOS_TIMERS */
@@ -940,7 +948,17 @@ volatile uint32_t uart_error_count = 0; // Error count
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
     if (huart->Instance == USART3) {
         uart_rx_count++;
+        
+        // Signal to task that new data is ready
+        // Use FromISR version for FreeRTOS calls from interrupt
+        BaseType_t xHigherPriorityTaskWoken = pdFALSE;
+        osSemaphoreRelease(uartRxSemaphoreHandle);
+        
+        // Re-arm UART for next reception
         HAL_UART_Receive_IT(&huart3, aRxBuffer, 5);
+        
+        // Yield to higher priority task if needed
+        portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
     }
 }
 
@@ -1023,70 +1041,78 @@ void startCommunicateTask(void *argument)
   /* USER CODE BEGIN startCommunicateTask */
 	char ack = 'A';
 
-		aRxBuffer[0] = 'E'; // will store key
-		aRxBuffer[1] = 'M'; // stores direction
-		aRxBuffer[2] = 'P'; // 2, 3, 4 will store the magnitude, angle
-		aRxBuffer[3] = 'T';
-		aRxBuffer[4] = 'Y';
+		rxBuffer_working[0] = 'E'; // will store key
+		rxBuffer_working[1] = 'M'; // stores direction
+		rxBuffer_working[2] = 'P'; // 2, 3, 4 will store the magnitude, angle
+		rxBuffer_working[3] = 'T';
+		rxBuffer_working[4] = 'Y';
   /* Infinite loop */
   for(;;)
   {
 	  cnt_communicate++;  // Task counter
 
+	  // Wait for UART data with timeout (blocking call)
+	  if (osSemaphoreAcquire(uartRxSemaphoreHandle, 100) == osOK) {
+		  // New data available - copy atomically from ISR buffer
+		  taskENTER_CRITICAL();
+		  memcpy(rxBuffer_working, aRxBuffer, 5);
+		  taskEXIT_CRITICAL();
+	  }
+
 	  magnitude = 0;
-	  if ((aRxBuffer[0] == 'G' && aRxBuffer[1] == 'Y' && aRxBuffer[2] == 'R'
-	  				&& aRxBuffer[3] == 'O' && aRxBuffer[4] == 'R')
-	  				|| (aRxBuffer[0] == 'S' || aRxBuffer[0] == 'R'
-	  						|| aRxBuffer[0] == 'L'|| aRxBuffer[0] == 'U')
-	  						&& (aRxBuffer[1] == 'F' || aRxBuffer[1] == 'B')
-	  						&& (0 <= aRxBuffer[2] - '0' <= 9)
-	  						&& (0 <= aRxBuffer[3] - '0' <= 9)
-	  						&& (0 <= aRxBuffer[4] - '0' <= 9)) {
+	  if ((rxBuffer_working[0] == 'G' && rxBuffer_working[1] == 'Y' && rxBuffer_working[2] == 'R'
+	  				&& rxBuffer_working[3] == 'O' && rxBuffer_working[4] == 'R')
+	  				|| (rxBuffer_working[0] == 'S' || rxBuffer_working[0] == 'R'
+	  						|| rxBuffer_working[0] == 'L'|| rxBuffer_working[0] == 'U')
+	  						&& (rxBuffer_working[1] == 'F' || rxBuffer_working[1] == 'B')
+	  						&& (0 <= rxBuffer_working[2] - '0' <= 9)
+	  						&& (0 <= rxBuffer_working[3] - '0' <= 9)
+	  						&& (0 <= rxBuffer_working[4] - '0' <= 9)) {
 
-	  			magnitude = ((int) (aRxBuffer[2]) - 48) * 100
-	  					+ ((int) (aRxBuffer[3]) - 48) * 10
-	  					+ ((int) (aRxBuffer[4]) - 48);
+	  			magnitude = ((int) (rxBuffer_working[2]) - 48) * 100
+	  					+ ((int) (rxBuffer_working[3]) - 48) * 10
+	  					+ ((int) (rxBuffer_working[4]) - 48);
 
-	  			if (aRxBuffer[1] == 'B') {
+	  			if (rxBuffer_working[1] == 'B') {
 	  				magnitude *= -1;
 	  			}
 
-	  			switch (aRxBuffer[0]) {
+	  			switch (rxBuffer_working[0]) {
 	  			case 'S':
 	  				moveCarStraight(magnitude);
 	  				flagDone = 1;
-	  				aRxBuffer[0] = 'D';
-	  				aRxBuffer[1] = 'O';
-	  				aRxBuffer[2] = 'N';
-	  				aRxBuffer[3] = 'E';
-	  				aRxBuffer[4] = '!';
+	  				rxBuffer_working[0] = 'D';
+	  				rxBuffer_working[1] = 'O';
+	  				rxBuffer_working[2] = 'N';
+	  				rxBuffer_working[3] = 'E';
+	  				rxBuffer_working[4] = '!';
 	  				break;
 	  			case 'R':
 	  				moveCarRight(magnitude);
 	  				flagDone = 1;
-	  				aRxBuffer[0] = 'D';
-	  				aRxBuffer[1] = 'O';
-	  				aRxBuffer[2] = 'N';
-	  				aRxBuffer[3] = 'E';
-	  				aRxBuffer[4] = '!';
+	  				rxBuffer_working[0] = 'D';
+	  				rxBuffer_working[1] = 'O';
+	  				rxBuffer_working[2] = 'N';
+	  				rxBuffer_working[3] = 'E';
+	  				rxBuffer_working[4] = '!';
 	  				break;
 	  			case 'L':
 	  				moveCarLeft(magnitude);
 	  				flagDone = 1;
-	  				aRxBuffer[0] = 'D';
-	  				aRxBuffer[1] = 'O';
-	  				aRxBuffer[2] = 'N';
-	  				aRxBuffer[3] = 'E';
-	  				aRxBuffer[4] = '!';
+	  				rxBuffer_working[0] = 'D';
+	  				rxBuffer_working[1] = 'O';
+	  				rxBuffer_working[2] = 'N';
+	  				rxBuffer_working[3] = 'E';
+	  				rxBuffer_working[4] = '!';
 	  				break;
 	  			case 'U':
 	  				moveCarStraight(uDistance + 8-magnitude);
 	  				flagDone = 1;
-	  				aRxBuffer[0] = 'D';
-	  				aRxBuffer[1] = 'O';
-	  				aRxBuffer[2] = 'N';
-	  				aRxBuffer[3] = 'E';
-	  				aRxBuffer[4] = '!';
+	  				rxBuffer_working[0] = 'D';
+	  				rxBuffer_working[1] = 'O';
+	  				rxBuffer_working[2] = 'N';
+	  				rxBuffer_working[3] = 'E';
+	  				rxBuffer_working[4] = '!';
 	  				break;
 	  			case 'G':
 	  				NVIC_SystemReset();
@@ -1099,7 +1125,7 @@ void startCommunicateTask(void *argument)
 	  			flagDone = 0;
 	  		}
 
-	  		osDelay(100);
+	  		// Task delay removed - blocking on semaphore provides timing
   }
   /* USER CODE END startCommunicateTask */
 }
