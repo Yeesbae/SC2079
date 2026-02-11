@@ -46,6 +46,145 @@ class MazeSolver:
         # Add created obstacle to grid object
         self.grid.add_obstacle(obstacle)
 
+    def add_composite_obstacle(
+        self,
+        x: int,
+        y: int,
+        length: int,
+        width: int,
+        direction: Direction,
+        obstacle_id: int
+    ):
+        """
+        Add a rectangular obstacle of dimension length × width (in grid cells),
+        constructed by stacking multiple 2×2 Obstacle objects.
+
+        (x, y) is the bottom-left corner.
+
+        If direction != Direction.SKIP:
+            - The geometrically centered 2×2 block gets the given direction.
+            - All other blocks are Direction.SKIP.
+            - Overlap is allowed.
+        """
+
+        blocks_x = math.ceil(length / 2)
+        blocks_y = math.ceil(width / 2)
+
+        base_id = obstacle_id * 1000
+        counter = 0
+
+        center_block_coord = None
+
+        if direction != Direction.SKIP:
+            center_x = x + length / 2
+            center_y = y + width / 2
+
+            center_block_x = int(round(center_x - 1))
+            center_block_y = int(round(center_y - 1))
+
+            center_block_coord = (center_block_x, center_block_y)
+
+            obstacle = Obstacle(
+                center_block_x,
+                center_block_y,
+                direction,
+                base_id + counter
+            )
+            self.grid.add_obstacle(obstacle)
+            counter += 1
+
+        for i in range(blocks_x):
+            for j in range(blocks_y):
+
+                new_x = x + 2 * i
+                new_y = y + 2 * j
+
+                if center_block_coord and (new_x, new_y) == center_block_coord:
+                    continue
+
+                obstacle = Obstacle(
+                    new_x,
+                    new_y,
+                    Direction.SKIP,
+                    base_id + counter
+                )
+
+                self.grid.add_obstacle(obstacle)
+                counter += 1
+
+
+    def perform_turn(self, turn_instruction: str, max_reverse_steps=10):
+        """
+        Compute a safe 90° turn (LEFT or RIGHT) as a full path.
+        If turn is blocked, reverse step by step until a turn is possible.
+        Returns: List[CellState] representing the maneuver
+        """
+        start_state = self.robot.get_start_state()
+        target_dir = self.get_target_direction(start_state.direction, turn_instruction)
+
+        path = []
+        states_to_try = [(start_state, 0)]  # tuple of (state, reverse_steps_done)
+        visited = set()
+
+        while states_to_try:
+            state, reverse_steps = states_to_try.pop(0)
+            if (state.x, state.y, state.direction) in visited:
+                continue
+            visited.add((state.x, state.y, state.direction))
+
+            # 1️⃣ Try turning in place
+            neighbors = self.get_neighbors(state.x, state.y, state.direction)
+            for nx, ny, new_dir, _ in neighbors:
+                if new_dir == target_dir:
+                    # Turn possible, return full path
+                    turn_path = path + [CellState(nx, ny, new_dir)]
+                    return turn_path
+
+            # 2️⃣ If turn blocked, reverse one step if allowed
+            if reverse_steps < max_reverse_steps:
+                reversed_state = self.try_reverse_one_step(state)
+                if reversed_state:
+                    path.append(reversed_state)
+                    states_to_try.append((reversed_state, reverse_steps + 1))
+
+        raise RuntimeError("Could not find safe turn path after reversing.")
+
+
+    def get_target_direction(self, current_dir, instruction):
+        if instruction == "LEFT":
+            return {
+                Direction.NORTH: Direction.WEST,
+                Direction.WEST: Direction.SOUTH,
+                Direction.SOUTH: Direction.EAST,
+                Direction.EAST: Direction.NORTH
+            }[current_dir]
+
+        elif instruction == "RIGHT":
+            return {
+                Direction.NORTH: Direction.EAST,
+                Direction.EAST: Direction.SOUTH,
+                Direction.SOUTH: Direction.WEST,
+                Direction.WEST: Direction.NORTH
+            }[current_dir]
+
+
+    def try_reverse_one_step(self, state: CellState):
+        """
+        Reverse 1 grid step safely.
+        Returns new CellState or None if blocked.
+        """
+
+        for dx, dy, md in MOVE_DIRECTION:
+            if md == state.direction:
+                back_x = state.x - dx
+                back_y = state.y - dy
+
+                if self.grid.reachable(back_x, back_y):
+                    return CellState(back_x, back_y, state.direction)
+
+        return None
+
+
     def reset_obstacles(self):
         self.grid.reset_obstacles()
 
@@ -375,6 +514,58 @@ class MazeSolver:
                 neighbors.append((x + dx, y + dy, end_dir, safe_cost))
                 
         return neighbors
+    
+
+    def get_path_to_parking(
+        self,
+        parking_x: int,
+        parking_y: int,
+        parking_direction: Direction = None
+    ) -> list[CellState]:
+        """
+        Compute the optimal path from current robot position to the parking lot.
+
+        Args:
+            parking_x (int): target x-coordinate of parking spot
+            parking_y (int): target y-coordinate of parking spot
+            parking_direction (Direction, optional): desired facing at parking. 
+                                                    Defaults to None (any direction).
+
+        Returns:
+            List[CellState]: full path from current robot state to parking
+        """
+        start_state = self.robot.get_start_state()
+        
+        # Create parking CellState
+        if parking_direction is None:
+            # If direction not specified, allow any direction (try all 4)
+            candidate_directions = [Direction.NORTH, Direction.SOUTH, Direction.EAST, Direction.WEST]
+        else:
+            candidate_directions = [parking_direction]
+
+        best_path = None
+        best_cost = float('inf')
+
+        for dir_candidate in candidate_directions:
+            parking_state = CellState(parking_x, parking_y, dir_candidate)
+            
+            # Generate path cost table for this start→goal
+            self.path_cost_generator([start_state, parking_state])
+
+            if (start_state, parking_state) not in self.cost_table:
+                continue
+
+            cost = self.cost_table[(start_state, parking_state)]
+            path = self.path_table[(start_state, parking_state)]
+
+            if cost < best_cost:
+                best_cost = cost
+                best_path = [CellState(x, y, d) for x, y, d in path]
+
+        if best_path is None:
+            raise RuntimeError("No valid path to parking found!")
+
+        return best_path
 
 
     def path_cost_generator(self, states: List[CellState]):

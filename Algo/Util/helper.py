@@ -1,5 +1,5 @@
 from constants import ARENA_WIDTH, ARENA_HEIGHT, Direction
-
+import random
 
 def is_valid(center_x: int, center_y: int):
     """Checks if given position is within bounds
@@ -237,3 +237,13 @@ def command_generator(states, obstacles):
         compressed_commands.append(commands[i])
 
     return compressed_commands
+
+def capture_image():
+    """Simulate image capture from robot's camera
+
+    Returns:
+        str: either 'LEFT' or 'RIGHT'
+    """
+    result = random.choice(["LEFT", "RIGHT"])
+    print(f"Captured image indicates turn: {result}")
+    return result

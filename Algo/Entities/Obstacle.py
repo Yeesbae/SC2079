@@ -175,11 +175,11 @@ class Obstacle(CellState):
                 # Or (x - 3, y)
                 if is_valid(self.x - OPTIMAL_IMAGE_VIEWING_DISTANCE + 1, self.y):
                     cells.append(CellState(self.x - OPTIMAL_IMAGE_VIEWING_DISTANCE + 1,
-                                 self.y, Direction.EAST, self.obstacle_id, 5))
+                                 self.y, Direction.EAST, self.obstacle_id, 0))
                 # Or (x - 4, y)
                 if is_valid(self.x - OPTIMAL_IMAGE_VIEWING_DISTANCE, self.y):
                     cells.append(CellState(self.x - OPTIMAL_IMAGE_VIEWING_DISTANCE,
-                                 self.y, Direction.EAST, self.obstacle_id, 0))
+                                 self.y, Direction.EAST, self.obstacle_id, 5))
 
                 # Or (x - 3,y + 1)
                 # if is_valid(self.x - 1 - EXPANDED_CELL * 2, self.y + 1):

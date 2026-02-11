@@ -32,6 +32,9 @@ class MazeVisualizer:
         return x * self.cell_size, self.height - y * self.cell_size
 
     def _dir_to_angle(self, d):
+        if d == Direction.SKIP:
+            return None
+    
         return {
             Direction.EAST: 0.0,
             Direction.NORTH: math.pi / 2,
@@ -59,13 +62,16 @@ class MazeVisualizer:
                  self.cell_size * OBSTACLE_SIZE_CELLS,
                  self.cell_size * OBSTACLE_SIZE_CELLS)
             )
-            self._draw_arrow(
-                obs.x + OBSTACLE_HALF_CELLS,
-                obs.y + OBSTACLE_HALF_CELLS,
-                self._dir_to_angle(obs.direction),
-                self.COLOR_ARROW,
-                0.4
-            )
+            
+            angle = self._dir_to_angle(obs.direction)
+            if angle is not None:
+                self._draw_arrow(
+                    obs.x + OBSTACLE_HALF_CELLS,
+                    obs.y + OBSTACLE_HALF_CELLS,
+                    angle,
+                    self.COLOR_ARROW,
+                    0.4
+                )
 
         # Draw path
         self._draw_path(path[:upto_idx + 1])

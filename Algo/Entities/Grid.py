@@ -1,6 +1,6 @@
 from .Cell import CellState
 from typing import List
-from constants import ROBOT_HALF_CELLS
+from constants import Direction, ROBOT_HALF_CELLS
 from .Obstacle import Obstacle
 
 class Grid:
@@ -32,6 +32,18 @@ class Grid:
 
         if to_add:
             self.obstacles.append(obstacle)
+
+    def remove_obstacle(self, obstacle_id: int):
+        """Add a new obstacle to the Grid object, ignores if duplicate obstacle
+
+        Args:
+            obstacle (Obstacle): Obstacle to be added
+        """
+        # Loop through the existing obstacles to check for duplicates
+        for ob in self.obstacles:
+            if ob.obstacle_id == obstacle_id:
+                self.obstacles.remove(ob)
+                break
 
     def reset_obstacles(self):
         """
@@ -133,7 +145,7 @@ class Grid:
         # print(f"Inside get_view_obstacle_positions: retrying = {retrying}")
         optimal_positions = []
         for obstacle in self.obstacles:
-            if obstacle.direction == 8:
+            if obstacle.direction == Direction.SKIP:
                 continue
             else:
                 view_states = [view_state for view_state in obstacle.get_view_state(
