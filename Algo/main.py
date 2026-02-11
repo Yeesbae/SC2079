@@ -175,7 +175,7 @@ def task_2():
     solver.add_composite_obstacle(x=38, y=15, length=2, width=10, direction=Direction.WEST, obstacle_id=4)
     solver.add_composite_obstacle(x=24, y=17, length=2, width=6, direction=Direction.WEST, obstacle_id=5)
 
-    viz = MazeVisualizer(grid_size=(40, 40), cell_pixel_size=17)
+    viz = MazeVisualizer(grid_size=(TASK_2_ARENA_WIDTH, TASK_2_ARENA_HEIGHT), cell_pixel_size=17)
     clock = pygame.time.Clock()
     
     path_index = 0
