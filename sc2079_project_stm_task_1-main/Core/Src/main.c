@@ -9,6 +9,7 @@
 #include "oled.h"
 #include "setup.h"
 #include "motor_control.h"
+#include "semphr.h"
 #include <stdio.h>
 #include <string.h>
 /* USER CODE END Includes */
@@ -950,14 +951,13 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
         uart_rx_count++;
         
         // Signal to task that new data is ready
-        // Use FromISR version for FreeRTOS calls from interrupt
         BaseType_t xHigherPriorityTaskWoken = pdFALSE;
-        osSemaphoreRelease(uartRxSemaphoreHandle);
+        xSemaphoreGiveFromISR(uartRxSemaphoreHandle, &xHigherPriorityTaskWoken);
         
         // Re-arm UART for next reception
         HAL_UART_Receive_IT(&huart3, aRxBuffer, 5);
         
-        // Yield to higher priority task if needed
+        // Yield immediately if a higher priority task was woken
         portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
     }
 }
