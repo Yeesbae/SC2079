@@ -841,7 +841,10 @@ void moveCarStraight(double distance) {
 	times_acceptable = 0;
 	rightTarget = rightEncoderVal + distance;
 	leftTarget = leftEncoderVal + distance;
-	while (finishCheck());
+	// Non-blocking wait with osDelay to allow other tasks to run
+	while (finishCheck()) {
+		osDelay(10);  // Yield to scheduler - prevents blocking other tasks
+	}
 }
 
 void moveCarStop() {
@@ -856,7 +859,10 @@ void moveCarRight(double angle) {
 	e_brake = 0;
 	times_acceptable = 0;
 	target_angle -= angle;
-	while (finishCheck());
+	// Non-blocking wait with osDelay to allow other tasks to run
+	while (finishCheck()) {
+		osDelay(10);  // Yield to scheduler - prevents blocking other tasks
+	}
 }
 
 void moveCarLeft(double angle) {
@@ -865,7 +871,10 @@ void moveCarLeft(double angle) {
 	e_brake = 0;
 	times_acceptable = 0;
 	target_angle += angle;
-	while (finishCheck());
+	// Non-blocking wait with osDelay to allow other tasks to run
+	while (finishCheck()) {
+		osDelay(10);  // Yield to scheduler - prevents blocking other tasks
+	}
 }
 
 int finishCheck() {
@@ -1060,14 +1069,19 @@ void startCommunicateTask(void *argument)
 	  }
 
 	  magnitude = 0;
-	  if ((rxBuffer_working[0] == 'G' && rxBuffer_working[1] == 'Y' && rxBuffer_working[2] == 'R'
-	  				&& rxBuffer_working[3] == 'O' && rxBuffer_working[4] == 'R')
-	  				|| (rxBuffer_working[0] == 'S' || rxBuffer_working[0] == 'R'
-	  						|| rxBuffer_working[0] == 'L'|| rxBuffer_working[0] == 'U')
-	  						&& (rxBuffer_working[1] == 'F' || rxBuffer_working[1] == 'B')
-	  						&& (0 <= rxBuffer_working[2] - '0' <= 9)
-	  						&& (0 <= rxBuffer_working[3] - '0' <= 9)
-	  						&& (0 <= rxBuffer_working[4] - '0' <= 9)) {
+	  // Check for GYROR reset command OR valid movement command
+	  int isGyroReset = (rxBuffer_working[0] == 'G' && rxBuffer_working[1] == 'Y' 
+	                     && rxBuffer_working[2] == 'R' && rxBuffer_working[3] == 'O' 
+	                     && rxBuffer_working[4] == 'R');
+	  
+	  int isValidCmd = (rxBuffer_working[0] == 'S' || rxBuffer_working[0] == 'R'
+	                    || rxBuffer_working[0] == 'L' || rxBuffer_working[0] == 'U')
+	                   && (rxBuffer_working[1] == 'F' || rxBuffer_working[1] == 'B')
+	                   && (rxBuffer_working[2] >= '0' && rxBuffer_working[2] <= '9')
+	                   && (rxBuffer_working[3] >= '0' && rxBuffer_working[3] <= '9')
+	                   && (rxBuffer_working[4] >= '0' && rxBuffer_working[4] <= '9');
+	  
+	  if (isGyroReset || isValidCmd) {
 
 	  			magnitude = ((int) (rxBuffer_working[2]) - 48) * 100
 	  					+ ((int) (rxBuffer_working[3]) - 48) * 10
@@ -1502,9 +1516,12 @@ void startOLEDTask(void *argument)
 			(unsigned int)huart3.RxState, (int)huart3.RxXferCount);
 	OLED_ShowString(0, 48, (uint8_t*)line5);
 
-	// Send periodic heartbeat to Python (every ~2 seconds)
+	// Send periodic heartbeat to Python (every ~2 seconds) with task counters
 	if (cnt_oled % 20 == 0) {
-		HAL_UART_Transmit(&huart3, (uint8_t*)"HB\r\n", 4, 10);
+		char debug[80];
+		snprintf(debug, sizeof(debug), "HB C:%lu M:%lu E:%lu G:%lu U:%lu\r\n",
+		         cnt_communicate, cnt_motor, cnt_encoder, cnt_gyro, cnt_ultrasonic);
+		HAL_UART_Transmit(&huart3, (uint8_t*)debug, strlen(debug), 50);
 	}
 
 	OLED_Refresh_Gram();
