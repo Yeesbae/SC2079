@@ -19,13 +19,11 @@ __pycache__/
 *.egg-info/
 dist/
 
-# Dataset images and labels
-**/Datasets/**/test/images/
-**/Datasets/**/train/images/
-**/Datasets/**/valid/images/
-**/Datasets/**/test/labels/
-**/Datasets/**/train/labels/
-**/Datasets/**/valid/labels/
+# Dataset folders (images/labels too large for git)
+**/Datasets/**/test/
+**/Datasets/**/train/
+**/Datasets/**/valid/
+*.cache
 
 # YOLO training outputs and models
 **/runs/
