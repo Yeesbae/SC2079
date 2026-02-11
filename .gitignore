@@ -1,2 +1,39 @@
-**/Debug
-**/.settings
+.gradle/
+**/build/
+*.iml
+local.properties
+.idea/
+.DS_Store
+Thumbs.db
+*.log
+
+# Python
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+
+# Dataset images and labels
+**/Datasets/**/test/images/
+**/Datasets/**/train/images/
+**/Datasets/**/valid/images/
+**/Datasets/**/test/labels/
+**/Datasets/**/train/labels/
+**/Datasets/**/valid/labels/
+
+# YOLO training outputs and models
+**/runs/
+*.pt
+*.weights
+*.onnx
+
+# STM32/Eclipse
+.metadata/
+.settings/
+Debug/
+Release/
