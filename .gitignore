@@ -6,7 +6,6 @@ local.properties
 .DS_Store
 Thumbs.db
 *.log
-<<<<<<< Updated upstream
 
 # Python
 .venv/
@@ -38,6 +37,3 @@ dist/
 .settings/
 Debug/
 Release/
-=======
-scripts
->>>>>>> Stashed changes
