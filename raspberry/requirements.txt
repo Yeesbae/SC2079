@@ -1,0 +1,16 @@
+# YOLOv8 Training and Inference
+ultralytics>=8.0.0
+
+# Computer Vision
+opencv-python>=4.8.0
+
+# PyTorch (auto-installed with ultralytics, but explicit for CUDA support)
+# For NVIDIA GPU: pip install torch torchvision --index-url https://download.pytorch.org/whl/cu118
+torch>=2.0.0
+torchvision>=0.15.0
+
+# Serial Communication (for Raspberry Pi)
+pyserial>=3.5
+
+# Optional: For Raspberry Pi Camera Module
+# picamera2>=0.3.12  # Only install on Raspberry Pi
