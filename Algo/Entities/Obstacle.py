@@ -40,53 +40,53 @@ class Obstacle(CellState):
                 # Or (x, y + 3)
                 if is_valid(self.x + x_offset, self.y + y_offset + OPTIMAL_IMAGE_VIEWING_DISTANCE):
                     cells.append(CellState(self.x + x_offset, self.y + y_offset + OPTIMAL_IMAGE_VIEWING_DISTANCE, 
-                                 Direction.NORTH, self.obstacle_id, BEST_SCREENSHOT_COST))
+                                 Direction.SOUTH, self.obstacle_id, BEST_SCREENSHOT_COST))
                 # Or (x + 1, y + 3)
                 if is_valid(self.x + x_offset + 1, self.y + y_offset + OPTIMAL_IMAGE_VIEWING_DISTANCE):
                     cells.append(CellState(self.x + x_offset + 1, self.y + y_offset + OPTIMAL_IMAGE_VIEWING_DISTANCE, 
-                                 Direction.NORTH, self.obstacle_id, OFFSIDED_SCREENSHOT_COST))
+                                 Direction.SOUTH, self.obstacle_id, OFFSIDED_SCREENSHOT_COST))
                 # Or (x - 1, y + 3)
                 if is_valid(self.x + x_offset - 1, self.y + y_offset + OPTIMAL_IMAGE_VIEWING_DISTANCE):
                     cells.append(CellState(self.x + x_offset - 1, self.y + y_offset + OPTIMAL_IMAGE_VIEWING_DISTANCE, 
-                                 Direction.NORTH, self.obstacle_id, OFFSIDED_SCREENSHOT_COST))
+                                 Direction.SOUTH, self.obstacle_id, OFFSIDED_SCREENSHOT_COST))
                 # Or (x, y + 4)
                 if is_valid(self.x + x_offset, self.y + y_offset + OPTIMAL_IMAGE_VIEWING_DISTANCE + 1):
                     cells.append(CellState(self.x + x_offset, self.y + y_offset + OPTIMAL_IMAGE_VIEWING_DISTANCE + 1, 
-                                 Direction.NORTH, self.obstacle_id, FAR_SCREENSHOT_COST))
+                                 Direction.SOUTH, self.obstacle_id, FAR_SCREENSHOT_COST))
                 # Or (x + 1, y + 4)
                 if is_valid(self.x + x_offset + 1, self.y + y_offset + OPTIMAL_IMAGE_VIEWING_DISTANCE + 1):
                     cells.append(CellState(self.x + x_offset + 1, self.y + y_offset + OPTIMAL_IMAGE_VIEWING_DISTANCE + 1, 
-                                 Direction.NORTH, self.obstacle_id, FAR_OFFSIDED_SCREENSHOT_COST))
+                                 Direction.SOUTH, self.obstacle_id, FAR_OFFSIDED_SCREENSHOT_COST))
                 # Or (x - 1, y + 4)
                 if is_valid(self.x + x_offset - 1, self.y + y_offset + OPTIMAL_IMAGE_VIEWING_DISTANCE + 1):
                     cells.append(CellState(self.x + x_offset - 1, self.y + y_offset + OPTIMAL_IMAGE_VIEWING_DISTANCE + 1, 
-                                 Direction.NORTH, self.obstacle_id, FAR_OFFSIDED_SCREENSHOT_COST))
+                                 Direction.SOUTH, self.obstacle_id, FAR_OFFSIDED_SCREENSHOT_COST))
 
             elif retrying == True:
                 # Or (x, y + 4)
                 if is_valid(self.x + x_offset, self.y + y_offset + OPTIMAL_IMAGE_VIEWING_DISTANCE + 1):
                     cells.append(CellState(self.x + x_offset, self.y + y_offset + OPTIMAL_IMAGE_VIEWING_DISTANCE + 1, 
-                                 Direction.NORTH, self.obstacle_id, BEST_SCREENSHOT_COST))
+                                 Direction.SOUTH, self.obstacle_id, BEST_SCREENSHOT_COST))
                 # Or (x + 1, y + 4)
                 if is_valid(self.x + x_offset + 1, self.y + y_offset + OPTIMAL_IMAGE_VIEWING_DISTANCE + 1):
                     cells.append(CellState(self.x + x_offset + 1, self.y + y_offset + OPTIMAL_IMAGE_VIEWING_DISTANCE + 1, 
-                                 Direction.NORTH, self.obstacle_id, OFFSIDED_SCREENSHOT_COST))
+                                 Direction.SOUTH, self.obstacle_id, OFFSIDED_SCREENSHOT_COST))
                 # Or (x - 1, y + 4)
                 if is_valid(self.x + x_offset - 1, self.y + y_offset + OPTIMAL_IMAGE_VIEWING_DISTANCE + 1):
                     cells.append(CellState(self.x + x_offset - 1, self.y + y_offset + OPTIMAL_IMAGE_VIEWING_DISTANCE + 1, 
-                                 Direction.NORTH, self.obstacle_id, OFFSIDED_SCREENSHOT_COST))
+                                 Direction.SOUTH, self.obstacle_id, OFFSIDED_SCREENSHOT_COST))
                 # Or (x, y + 5)
                 if is_valid(self.x + x_offset, self.y + y_offset + OPTIMAL_IMAGE_VIEWING_DISTANCE + 2):
                     cells.append(CellState(self.x + x_offset, self.y + y_offset + OPTIMAL_IMAGE_VIEWING_DISTANCE + 2, 
-                                 Direction.NORTH, self.obstacle_id, FAR_SCREENSHOT_COST))
+                                 Direction.SOUTH, self.obstacle_id, FAR_SCREENSHOT_COST))
                 # Or (x + 1, y + 5)
                 if is_valid(self.x + x_offset + 1, self.y + y_offset + OPTIMAL_IMAGE_VIEWING_DISTANCE + 2):
                     cells.append(CellState(self.x + x_offset + 1, self.y + y_offset + OPTIMAL_IMAGE_VIEWING_DISTANCE + 2, 
-                                 Direction.NORTH, self.obstacle_id, FAR_OFFSIDED_SCREENSHOT_COST))
+                                 Direction.SOUTH, self.obstacle_id, FAR_OFFSIDED_SCREENSHOT_COST))
                 # Or (x - 1, y + 5)
                 if is_valid(self.x + x_offset - 1, self.y + y_offset + OPTIMAL_IMAGE_VIEWING_DISTANCE + 2):
                     cells.append(CellState(self.x + x_offset - 1, self.y + y_offset + OPTIMAL_IMAGE_VIEWING_DISTANCE + 2, 
-                                 Direction.NORTH, self.obstacle_id, FAR_OFFSIDED_SCREENSHOT_COST))
+                                 Direction.SOUTH, self.obstacle_id, FAR_OFFSIDED_SCREENSHOT_COST))
 
         # If obstacle is facing south, then robot's cell state must be facing north
         elif self.direction == Direction.SOUTH:
