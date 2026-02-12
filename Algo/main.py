@@ -210,7 +210,7 @@ def task_2():
 
 if __name__ == "__main__":
     print("Starting Task 1: Visit all Obstacles & Capture all images")
-    # task_1()
+    task_1()
     print("\n============================================================================\n")
     print("Starting Task 2: Visit all images & Follow Direction & Go Back to Start")
     task_2()
