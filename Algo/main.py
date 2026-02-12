@@ -8,11 +8,24 @@ def task_1():
     # Start robot at (2, 2) facing NORTH
     solver = MazeSolver(size_x=ARENA_WIDTH, size_y=ARENA_HEIGHT, robot_x=2, robot_y=2, robot_direction=Direction.NORTH)
     
-    solver.add_obstacle(x=6,  y=6,  direction=Direction.NORTH, obstacle_id=1)
-    solver.add_obstacle(x=30, y=6,  direction=Direction.WEST,  obstacle_id=2)
-    solver.add_obstacle(x=6,  y=30, direction=Direction.EAST,  obstacle_id=3)
-    solver.add_obstacle(x=30, y=30, direction=Direction.SOUTH, obstacle_id=4)
-    solver.add_obstacle(x=18, y=18, direction=Direction.WEST,  obstacle_id=5)
+    # solver.add_obstacle(x=6,  y=6,  direction=Direction.NORTH, obstacle_id=1)
+    # solver.add_obstacle(x=23, y=6,  direction=Direction.WEST,  obstacle_id=2)
+    # solver.add_obstacle(x=6,  y=30, direction=Direction.EAST,  obstacle_id=3)
+    # solver.add_obstacle(x=23, y=30, direction=Direction.SOUTH, obstacle_id=4)
+    # solver.add_obstacle(x=18, y=18, direction=Direction.WEST,  obstacle_id=5)
+    # solver.add_obstacle(x=30, y=18, direction=Direction.WEST,  obstacle_id=6)
+
+    solver.add_obstacle(x=2,  y=15,  direction=Direction.SOUTH, obstacle_id=1)
+    solver.add_obstacle(x=16, y=4,  direction=Direction.EAST,  obstacle_id=2)
+    solver.add_obstacle(x=34, y=4,  direction=Direction.NORTH, obstacle_id=3)
+    solver.add_obstacle(x=29, y=16, direction=Direction.NORTH,  obstacle_id=4)
+    solver.add_obstacle(x=13, y=24, direction=Direction.EAST, obstacle_id=5)
+    solver.add_obstacle(x=4, y=35, direction=Direction.SOUTH,  obstacle_id=6)
+    solver.add_obstacle(x=18, y=35, direction=Direction.EAST, obstacle_id=7)
+    solver.add_obstacle(x=34, y=35, direction=Direction.WEST,  obstacle_id=8)
+
+    # 7 Obs around 2+ mins
+    # 8 Obs around 3mins 40+ seconds
 
     print("Calculating optimal Hamiltonian path...")
     optimal_path, total_distance = solver.get_optimal_order_dp(retrying=False)
