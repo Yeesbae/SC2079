@@ -16,13 +16,13 @@ object ProtocolEncoder {
     var cmdForward: String = "f"
 
     /** Command string for move backward (AMD Tool default: "b") */
-    var cmdBackward: String = "b"
+    var cmdBackward: String = "r"
 
-    /** Command string for turn left (AMD Tool default: "sl") */
-    var cmdTurnLeft: String = "sl"
+    /** Command string for turn left (AMD Tool default: "tl") */
+    var cmdTurnLeft: String = "tl"
 
-    /** Command string for turn right (AMD Tool default: "sr") */
-    var cmdTurnRight: String = "sr"
+    /** Command string for turn right (AMD Tool default: "tr") */
+    var cmdTurnRight: String = "tr"
 
     /** Command string for requesting arena info */
     var cmdRequestArena: String = "SEND_ARENA"
@@ -49,10 +49,9 @@ object ProtocolEncoder {
 
         // Format: "TAG,B1,bl=(x,y),w=2,h=2,img=11,face=N"
         is Outgoing.TaggedObstacleRect -> {
-            val id = "B${msg.groupId}"
             val img = msg.imageId ?: ""
             val face = msg.facing?.let { DirectionUtil.toProtocolChar(it) } ?: ""
-            "TAG,$id,(${msg.bottomLeftX},${msg.bottomLeftY}),${msg.width},${msg.height},$img,$face"
+            "TAG,${msg.obstacleId},(${msg.bottomLeftX},${msg.bottomLeftY}),${msg.width},${msg.height},$img,$face"
         }
 
         // Obstacle placement (C.6): "ADD,B1,(10,6)"
@@ -83,21 +82,5 @@ object ProtocolEncoder {
 
         // Raw passthrough
         is Outgoing.Raw -> msg.line.trim()
-    }
-
-    /**
-     * Configure movement commands to match AMD Tool settings.
-     * Call this during app initialization if your team uses different command strings.
-     */
-    fun configureMovementCommands(
-        forward: String = "f",
-        backward: String = "b",
-        turnLeft: String = "sl",
-        turnRight: String = "sr"
-    ) {
-        cmdForward = forward
-        cmdBackward = backward
-        cmdTurnLeft = turnLeft
-        cmdTurnRight = turnRight
     }
 }

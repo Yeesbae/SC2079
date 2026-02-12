@@ -81,7 +81,7 @@ internal class BluetoothCommunicationService(
                 try {
                     val line = writeQueue.take()
                     synchronized(writeLock) {
-                        os.write((line + "\n").toByteArray(Charsets.UTF_8))
+                        os.write((line + BluetoothConfig.LINE_ENDING).toByteArray(Charsets.UTF_8))
                         os.flush()
                 }
             } catch (ie: InterruptedException) {
@@ -116,16 +116,12 @@ internal class BluetoothCommunicationService(
                         onLine?.invoke(line, isEcho)
                     }
 
-                    if (!hadDelimiter && lineBuilder.hasPending()) {
-                        try { Thread.sleep(50) } catch (_: Exception) {}
-                        if (lineBuilder.hasPending()) {
-                            lineBuilder.flush { line ->
-                                val isEcho = echoTracker.isEcho(line)
-                                onLine?.invoke(line, isEcho)
-                            }
+                    if (!hadDelimiter && lineBuilder.shouldIdleFlush(120)) {
+                        lineBuilder.flush { line ->
+                            val isEcho = echoTracker.isEcho(line)
+                            onLine?.invoke(line, isEcho)
                         }
                     }
-
                 }
             } catch (e: Exception) {
                 val msg = e.message ?: e.javaClass.simpleName
@@ -206,6 +202,7 @@ internal class BluetoothCommunicationService(
 
     private class LineBuilder {
         private val buf = ByteArrayOutputStream()
+        @Volatile private var lastAppendMs: Long = 0
 
         fun append(bytes: ByteArray, n: Int, onLine: (String) -> Unit): Boolean {
             var emitted = false
@@ -225,6 +222,10 @@ internal class BluetoothCommunicationService(
             val line = buf.toString(Charsets.UTF_8.name()).trim()
             buf.reset()
             if (line.isNotEmpty()) onLine(line)
+        }
+
+        fun shouldIdleFlush(idleMs: Long): Boolean {
+            return buf.size() > 0 && (System.currentTimeMillis() - lastAppendMs) >= idleMs
         }
 
         fun hasPending(): Boolean = buf.size() > 0

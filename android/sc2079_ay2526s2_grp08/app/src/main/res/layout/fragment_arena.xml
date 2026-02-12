@@ -1,0 +1,108 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/arenaRoot"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="@android:color/white">
+
+    <!-- Selected obstacle label -->
+    <TextView
+        android:id="@+id/tvSelected"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Selected: Obs 1"
+        android:padding="8dp"
+        android:textStyle="bold"
+        android:textSize="14sp" />
+
+    <!-- 2-row obstacle grid (4 x 2) -->
+    <GridLayout
+        android:id="@+id/obstacleGrid"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:columnCount="5"
+        android:rowCount="2"
+        android:useDefaultMargins="true"
+        android:alignmentMode="alignMargins"
+        android:padding="8dp">
+
+        <Button
+            android:id="@+id/btnObs1"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_columnWeight="1"
+            android:text="Obs 1" />
+
+        <Button
+            android:id="@+id/btnObs2"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_columnWeight="1"
+            android:text="Obs 2" />
+
+        <Button
+            android:id="@+id/btnObs3"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_columnWeight="1"
+            android:text="Obs 3" />
+
+        <Button
+            android:id="@+id/btnObs4"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_columnWeight="1"
+            android:text="Obs 4" />
+
+        <Button
+            android:id="@+id/btnObs5"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_columnWeight="1"
+            android:text="Obs 5" />
+
+        <Button
+            android:id="@+id/btnObs6"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_columnWeight="1"
+            android:text="Obs 6" />
+
+        <Button
+            android:id="@+id/btnObs7"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_columnWeight="1"
+            android:text="Obs 7" />
+
+        <Button
+            android:id="@+id/btnObs8"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_columnWeight="1"
+            android:text="Obs 8" />
+
+        <Button
+            android:id="@+id/btnBlock"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_columnWeight="1"
+            android:text="Block" />
+
+    </GridLayout>
+
+    <!-- Arena takes remaining space -->
+    <com.example.sc2079_ay2526s2_grp08.ui.arena.ArenaView
+        android:id="@+id/arenaView"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:background="@android:color/white"
+        android:paddingLeft="18dp"
+        android:paddingBottom="18dp"
+        android:paddingRight="6dp"
+        android:paddingTop="6dp" />
+
+
+</LinearLayout>

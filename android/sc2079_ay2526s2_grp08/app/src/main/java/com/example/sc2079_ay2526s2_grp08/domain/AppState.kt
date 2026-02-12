@@ -60,11 +60,10 @@ data class Cell(
     val isTarget: Boolean = false,
     val imageId: String? = null,
     val targetDirection: RobotDirection? = null,
-    val obstacleId: Int? = null
+    val obstacleId: Int? = null,
+    val protocolId: String? = null
 ) {
-    companion object {
-        val EMPTY = Cell()
-    }
+    companion object { val EMPTY = Cell() }
 }
 
 /**
@@ -92,7 +91,6 @@ data class ArenaState(
     }
 
     fun isObstacle(x: Int, y: Int): Boolean = getCell(x, y).isObstacle
-    fun isTarget(x: Int, y: Int): Boolean = getCell(x, y).isTarget
     fun getImageId(x: Int, y: Int): String? = getCell(x, y).imageId
     fun withCell(x: Int, y: Int, cell: Cell): ArenaState {
         if (x !in 0 until width || y !in 0 until height) return this
@@ -101,15 +99,36 @@ data class ArenaState(
         return copy(cells = mutable)
     }
 
-    fun setObstacle(x: Int, y: Int, present: Boolean, obstacleId: Int? = null): ArenaState {
+    fun setObstacle(
+        x: Int,
+        y: Int,
+        present: Boolean,
+        obstacleId: Int? = null,
+        protocolId: String? = null
+    ): ArenaState {
         val current = getCell(x, y)
-        return withCell(x, y, current.copy(isObstacle = present, obstacleId = if (present) obstacleId else null))
+        return withCell(
+            x, y,
+            current.copy(
+                isObstacle = present,
+                obstacleId = if (present) obstacleId else null,
+                protocolId = if (present) protocolId else null
+            )
+        )
     }
+
 
     fun setTarget(x: Int, y: Int, present: Boolean, direction: RobotDirection? = null): ArenaState {
         val current = getCell(x, y)
-        return withCell(x, y, current.copy(isTarget = present, targetDirection = if (present) direction else null))
+        return withCell(
+            x, y,
+            current.copy(
+                isTarget = present,
+                targetDirection = if (present) direction else null
+            )
+        )
     }
+
 
     fun setImageId(x: Int, y: Int, imageId: String?): ArenaState {
         val current = getCell(x, y)
@@ -220,32 +239,35 @@ data class LogEntry(
  * @param facing Direction the target face is pointing (N/E/S/W), null if not set
  * @param targetId Detected image ID after TARGET message, null if not detected yet
  */
-data class ObstacleState(
-    val id: Int,
-    val x: Int,
-    val y: Int,
-    val facing: RobotDirection? = null,
-    val targetId: String? = null
-) {
-    /** Obstacle ID as string (e.g., "B1", "B2") */
-    val obstacleId: String get() = "B$id"
-}
+//data class ObstacleState(
+//    val id: Int,
+//    val x: Int,
+//    val y: Int,
+//    val facing: RobotDirection? = null,
+//    val targetId: String? = null
+//) {
+//    /** Obstacle ID as string (e.g., "B1", "B2") */
+//    val obstacleId: String get() = "B$id"
+//}
 
-data class TaggedObstacleRectModel(
-    val groupId: Int,
+data class PendingObstacle(
+    val obstacleId: Int?,
+    val width: Int = 2,
+    val height: Int = 2,
+    val facing: RobotDirection? = RobotDirection.NORTH
+)
+
+data class PlacedObstacle(
+    val protocolId: String,
+    val obstacleId: Int?,
     val bottomLeftX: Int,
     val bottomLeftY: Int,
     val width: Int,
     val height: Int,
-    val imageId: String? = null,
-    val facing: RobotDirection? = null
+    val facing: RobotDirection?,
+    val targetId: String? = null
 )
 
-data class ObstacleGroupMeta(
-    val groupId: Int,                 // 1..8
-    val imageId: String? = null,
-    val facing: RobotDirection? = null
-)
 
 object ArenaConfig {
     const val GRID_SIZE = 40
@@ -282,10 +304,13 @@ data class AppState(
     // Arena grid (for rendering and collision)
     val arena: ArenaState? = null,
 
-    // Obstacle blocks (for easy UI access - MDP uses 8 obstacles)
-    val obstacleBlocks: List<ObstacleState> = emptyList(),
-    val taggedObstacleRects: List<TaggedObstacleRectModel> = emptyList(),
-    val obstacleGroupMeta: Map<Int, ObstacleGroupMeta> = emptyMap(),
+    val pendingObstacle: PendingObstacle? = null,
+    val pendingPreview: PlacedObstacle? = null,
+    val dragPreview: PlacedObstacle? = null,
+    val placedObstacles: List<PlacedObstacle> = emptyList(),
+
+    val usedTargetObstacleIds: Set<Int> = emptySet(),
+    val nextBlockageSeq: Int = 1,
 
     // Image detections
     val detections: List<ImageDetection> = emptyList(),

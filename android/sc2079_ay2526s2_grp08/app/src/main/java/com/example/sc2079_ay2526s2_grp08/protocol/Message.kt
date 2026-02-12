@@ -59,7 +59,7 @@ sealed interface Outgoing {
     data class TurnDegrees(val degrees: Int) : Outgoing
 
     data class TaggedObstacleRect(
-        val groupId: Int,
+        val obstacleId: String,
         val bottomLeftX: Int,
         val bottomLeftY: Int,
         val width: Int,

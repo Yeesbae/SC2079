@@ -10,6 +10,7 @@ import com.example.sc2079_ay2526s2_grp08.viewmodel.reducers.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
+import kotlin.io.path.Path
 
 /**
  * Main ViewModel - the single point of interaction between UI and backend.
@@ -37,9 +38,6 @@ class MainViewModel(
     private var autoListenOnDisconnect: Boolean = true
     val state: StateFlow<AppState> = _state
 
-    // Counter for generating obstacle IDs
-    private var obstacleCounter = 0
-
     init {
         bt.onEvent = { ev -> handleBluetoothEvent(ev) }
     }
@@ -62,6 +60,10 @@ class MainViewModel(
 
     /** Connect to a specific Bluetooth device (client mode) */
     fun connectToDevice(device: BtDevice) {
+        autoListenOnDisconnect = false
+        bt.stopServer()
+        bt.disconnectClient()
+
         val adapter = android.bluetooth.BluetoothAdapter.getDefaultAdapter()
         val remote = adapter?.getRemoteDevice(device.address)
         if (remote != null) bt.connect(remote)
@@ -148,90 +150,72 @@ class MainViewModel(
         send(Outgoing.TurnDegrees(degrees))
     }
 
-
-    // ═══════════════════════════════════════════════════════════════════════════
-    // OBSTACLE MANAGEMENT (C.6) - With local state + Bluetooth send
-    // ═══════════════════════════════════════════════════════════════════════════
-
-    /**
-     * Place or move an obstacle to position (x, y).
-     * Updates local state AND sends via Bluetooth.
-     * Use this for touch-to-place or drag interactions.
-     *
-     * @param id Obstacle number (1-8)
-     * @param x Grid x-coordinate
-     * @param y Grid y-coordinate
-     */
-    fun placeOrMoveObstacle(id: Int, x: Int, y: Int) {
-        val obstacleId = "B$id"
-        _state.update { s -> ObstacleReducer.placeOrMoveObstacle(s, id, x, y) }
-        send(Outgoing.AddObstacle(obstacleId, x, y))
+    fun pickObstacleToConfigure(obstacleId: Int?) {
+        // obstacleId 1..8 or null for blockage
+        _state.update { PlacementReducer.setPending(it, PendingObstacle(obstacleId = obstacleId)) }
     }
 
-    /**
-     * Add obstacle at position (x, y) with given string ID.
-     * Also updates local state.
-     */
-    fun sendAddObstacle(obstacleId: String, x: Int, y: Int) {
-        val id = obstacleId.removePrefix("B").toIntOrNull() ?: run {
-            obstacleCounter++
-            obstacleCounter
-        }
-        placeOrMoveObstacle(id, x, y)
-    }
-
-    /**
-     * Add obstacle at position with auto-generated ID (B1, B2, etc.)
-     * Returns the obstacle ID string.
-     */
-    fun sendAddObstacle(x: Int, y: Int): String {
-        obstacleCounter++
-        val id = obstacleCounter.coerceIn(1, ArenaConfig.MAX_OBSTACLES)
-        placeOrMoveObstacle(id, x, y)
-        return "B$id"
-    }
-
-    /**
-     * Remove obstacle by numeric ID (1-8).
-     * Updates local state AND sends via Bluetooth.
-     */
-    fun removeObstacle(id: Int) {
-        _state.update { s -> ObstacleReducer.removeObstacle(s, id) }
-        send(Outgoing.RemoveObstacle("B$id"))
-    }
-
-    /**
-     * Remove obstacle by string ID (e.g., "B1").
-     */
-    fun sendRemoveObstacle(obstacleId: String) {
-        val id = obstacleId.removePrefix("B").toIntOrNull() ?: return
-        removeObstacle(id)
-    }
-
-    // ═══════════════════════════════════════════════════════════════════════════
-    // TARGET FACE ANNOTATION (C.7)
-    // ═══════════════════════════════════════════════════════════════════════════
-
-    /**
-     * Set which face of an obstacle has the target image.
-     * Updates local state AND sends via Bluetooth.
-     *
-     * @param id Obstacle number (1-8)
-     * @param facing Direction the target face is pointing
-     */
-    fun setObstacleFacing(id: Int, facing: RobotDirection?) {
-        _state.update { s -> ObstacleReducer.setObstacleFacing(s, id, facing) }
-        if (facing != null) {
-            send(Outgoing.SetObstacleFace("B$id", facing))
+    fun updatePendingConfig(width: Int, height: Int, facing: RobotDirection?) {
+        _state.update { s ->
+            val p = s.pendingObstacle ?: return@update s
+            val next = p.copy(width = width, height = height, facing = facing)
+            PlacementReducer.setPending(s, next)
         }
     }
 
-    /**
-     * Set obstacle face by string ID.
-     */
-    fun sendSetObstacleFace(obstacleId: String, face: RobotDirection) {
-        val id = obstacleId.removePrefix("B").toIntOrNull() ?: return
-        setObstacleFacing(id, face)
+    fun cancelPending() {
+        _state.update { PlacementReducer.setPending(it, null) }
+    }
+
+    fun previewPendingAt(bottomLeftX: Int, bottomLeftY: Int) {
+        _state.update { s ->
+            val p = s.pendingObstacle ?: return@update s
+            val protocolId = buildProtocolIdForPending(s, p)
+            val preview = PlacedObstacle(protocolId, p.obstacleId, bottomLeftX, bottomLeftY, p.width, p.height, p.facing)
+            PlacementReducer.setPendingPreview(s, preview)
+        }
+    }
+
+    fun commitPendingAt(bottomLeftX: Int, bottomLeftY: Int) {
+        val s = _state.value
+        val p = s.pendingObstacle ?: return
+
+        val protocolId = buildProtocolIdForPending(s, p)
+        val placed = PlacedObstacle(protocolId, p.obstacleId, bottomLeftX, bottomLeftY, p.width, p.height, p.facing)
+
+        _state.update { s ->
+            val next = PlacementReducer.commitPlaced(s, placed)
+            if (p.obstacleId == null) next.copy(nextBlockageSeq = s.nextBlockageSeq + 1) else next
+        }
+        sendAddForAllCells(placed)
+    }
+
+    fun movePlaced(protocolId: String, bottomLeftX: Int, bottomLeftY: Int) {
+        val s = _state.value
+        val ob = s.placedObstacles.find { it.protocolId == protocolId } ?: return
+
+        send(Outgoing.RemoveObstacle(protocolId))
+        val moved = ob.copy(bottomLeftX = bottomLeftX, bottomLeftY = bottomLeftY)
+        _state.update { st -> PlacementReducer.commitPlaced(st, moved) }
+        _state.update { it.copy(dragPreview = null) }
+
+        sendAddForAllCells(moved)
+    }
+
+    fun previewMovePlaced(protocolId: String, bottomLeftX: Int, bottomLeftY: Int) {
+        val s = _state.value
+        val ob = s.placedObstacles.find { it.protocolId == protocolId } ?: return
+        _state.update { it.copy(dragPreview = ob.copy(bottomLeftX = bottomLeftX, bottomLeftY = bottomLeftY)) }
+    }
+
+    fun removePlaced(protocolId: String) {
+        _state.update { PlacementReducer.removePlaced(it, protocolId).copy(dragPreview = null) }
+        send(Outgoing.RemoveObstacle(protocolId)) // assume AMD removes all cells by id
+    }
+
+    fun setPlacedFacing(protocolId: String, facing: RobotDirection) {
+        _state.update { PlacementReducer.updateFacing(it, protocolId, facing) }
+        send(Outgoing.SetObstacleFace(protocolId, facing)) // only meaningful for B1..B8
     }
 
     /**
@@ -276,8 +260,39 @@ class MainViewModel(
 
     /** Initialize arena with default or custom dimensions */
     fun initializeArena(width: Int = ArenaState.DEFAULT_WIDTH, height: Int = ArenaState.DEFAULT_HEIGHT) {
-        obstacleCounter = 0
-        _state.update { it.copy(arena = ArenaState.empty(width, height)) }
+        _state.update {
+            it.copy(
+                arena = ArenaState.empty(width, height),
+                pendingObstacle = null,
+                pendingPreview = null,
+                placedObstacles = emptyList(),
+                usedTargetObstacleIds = emptySet(),
+                nextBlockageSeq = 1
+            )
+        }
+    }
+
+    fun resetAll() {
+        val s = _state.value
+        val ids = s.placedObstacles.map { it.protocolId }
+
+        _state.update {
+            it.copy(
+                robot = RobotState(x = 1, y = 1, directionDeg = 0),
+                statusText = null,
+                detections = emptyList(),
+                lastDetection = null,
+                pathExecution = PathExecutionState(),
+                placedObstacles = emptyList(),
+                pendingObstacle = null,
+                pendingPreview = null,
+                dragPreview = null,
+                usedTargetObstacleIds = emptySet(),
+                nextBlockageSeq = 1
+            ).withArenaDerivedFromPlacedObstacles()
+        }
+        send(Outgoing.SetRobotPosition(1, 1, RobotDirection.NORTH))
+        for (id in ids) send(Outgoing.RemoveObstacle(id))
     }
 
     /** Set robot position locally (without sending) */
@@ -349,7 +364,15 @@ class MainViewModel(
 
             is BluetoothManager.Event.Disconnected -> {
                 log(LogEntry.Kind.INFO, "DISCONNECTED: ${ev.reason} ${ev.message ?: ""}".trim())
-                if (autoListenOnDisconnect) {
+                val permissionDenied =
+                    ev.message?.contains("BLUETOOTH_CONNECT", ignoreCase = true) == true ||
+                            ev.message?.contains("permission", ignoreCase = true) == true
+
+                val shouldAutoListen = autoListenOnDisconnect &&
+                        !permissionDenied &&
+                        bt.mode != BluetoothManager.Mode.CLIENT
+
+                if (shouldAutoListen) {
                     bt.startServer()
                 }
             }
@@ -394,10 +417,6 @@ class MainViewModel(
             is Incoming.GridBinary -> handleGridBinary(msg)
             is Incoming.ArenaResize -> handleArenaResize(msg)
 
-            // Obstacle updates (echoed from AMD Tool)
-            is Incoming.ObstacleUpdate -> handleObstacleUpdate(msg)
-            is Incoming.ObstacleRemoved -> handleObstacleRemoved(msg)
-
             // Path execution
             is Incoming.PathSequence -> handlePathSequence(msg)
             is Incoming.PathStep -> handlePathStep(msg)
@@ -409,6 +428,8 @@ class MainViewModel(
 
             // Raw/unrecognized
             is Incoming.Raw -> { /* Already logged */ }
+            is Incoming.ObstacleRemoved -> Unit
+            is Incoming.ObstacleUpdate -> Unit
         }
     }
 
@@ -426,9 +447,9 @@ class MainViewModel(
      * Updates the obstacle block to display the target ID.
      */
     private fun handleTargetDetected(msg: Incoming.TargetDetected) {
-        _state.update { s -> ObstacleReducer.onTargetDetected(s, msg) }
-        log(LogEntry.Kind.INFO, "TARGET: ${msg.obstacleId} -> ${msg.targetId}" +
-                (msg.face?.let { " (face: $it)" } ?: ""))
+        val protocolId = msg.obstacleId
+        _state.update { s -> PlacementReducer.onTargetDetected(s, protocolId, msg.targetId, msg.face) }
+        log(LogEntry.Kind.INFO, "TARGET: ${msg.obstacleId} -> ${msg.targetId}")
     }
 
     /**
@@ -459,14 +480,6 @@ class MainViewModel(
         _state.update { s -> ArenaReducer.onArenaResize(s, msg) }
     }
 
-    private fun handleObstacleUpdate(msg: Incoming.ObstacleUpdate) {
-        _state.update { s -> ObstacleReducer.onIncomingObstacleUpdate(s, msg) }
-    }
-
-    private fun handleObstacleRemoved(msg: Incoming.ObstacleRemoved) {
-        _state.update { s -> ObstacleReducer.onIncomingObstacleRemoved(s, msg) }
-    }
-
     private fun handlePathSequence(msg: Incoming.PathSequence) {
         _state.update { s -> PathReducer.onPathSequence(s, msg) }
         log(LogEntry.Kind.INFO, "PATH RECEIVED: ${msg.poses.size} poses")
@@ -487,54 +500,42 @@ class MainViewModel(
     }
 
     private fun handleRequestSync() {
-        // Remote requested sync - send current state
         val s = _state.value
         s.robot?.let {
             send(Outgoing.SetRobotPosition(it.x, it.y, it.robotDirection))
         }
-        // Send obstacles
-        s.arena?.getObstacles()?.forEach { (x, y, id) ->
-            val obstacleId = id?.let { "B$it" } ?: "B${x}_${y}"
-            send(Outgoing.AddObstacle(obstacleId, x, y))
+        s.placedObstacles.forEach { placed ->
+            for (dx in 0 until placed.width) for (dy in 0 until placed.height) {
+                val x = placed.bottomLeftX + dx
+                val y = placed.bottomLeftY + dy
+                send(Outgoing.AddObstacle(placed.protocolId, x, y))
+            }
+        }
+        s.placedObstacles.forEach { placed ->
+            if (placed.protocolId.startsWith("B") && placed.facing != null) {
+                send(Outgoing.SetObstacleFace(placed.protocolId, placed.facing))
+            }
+        }
+    }
+
+    private fun buildProtocolIdForPending(state: AppState, pending: PendingObstacle): String {
+        return if (pending.obstacleId != null) {
+            "B${pending.obstacleId}"
+        } else {
+            "X${state.nextBlockageSeq}"
+        }
+    }
+
+    private fun sendAddForAllCells(placed: PlacedObstacle) {
+        for (dx in 0 until placed.width) for (dy in 0 until placed.height) {
+            val x = placed.bottomLeftX + dx
+            val y = placed.bottomLeftY + dy
+            send(Outgoing.AddObstacle(placed.protocolId, x, y))
         }
     }
 
 
     private fun log(kind: LogEntry.Kind, text: String) {
         _state.update { s -> LogReducer.append(s, kind, text) }
-    }
-
-    fun assignGroupIdFromCell(cellX: Int, cellY: Int, groupId: Int) {
-        var tagged = false
-        _state.update { s ->
-            val (next, ok) = TaggingReducer.assignGroupIdFromCell(s, cellX, cellY, groupId)
-            tagged = ok
-            next
-        }
-        if (!tagged) {
-            log(LogEntry.Kind.INFO, "No obstacle at ($cellX,$cellY) to tag.")
-        }
-    }
-
-    fun setGroupMeta(groupId: Int, imageId: String?, facing: RobotDirection?) {
-        _state.update { s -> TaggingReducer.setGroupMeta(s, groupId, imageId, facing) }
-    }
-
-    fun sendTaggedObstaclesToAlgo() {
-        val s = _state.value
-        for (r in s.taggedObstacleRects) {
-            val meta = s.obstacleGroupMeta[r.groupId]
-            send(
-                Outgoing.TaggedObstacleRect(
-                    groupId = r.groupId,
-                    bottomLeftX = r.bottomLeftX,
-                    bottomLeftY = r.bottomLeftY,
-                    width = r.width,
-                    height = r.height,
-                    imageId = meta?.imageId,
-                    facing = meta?.facing
-                )
-            )
-        }
     }
 }

@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<menu xmlns:android="http://schemas.android.com/apk/res/android">
+    <item
+        android:id="@+id/connectFragment"
+        android:title="Connect"
+        android:icon="@android:drawable/stat_sys_data_bluetooth" />
+
+    <item
+        android:id="@+id/controllerFragment"
+        android:title="Controller"
+        android:icon="@android:drawable/ic_media_play" />
+
+    <item
+        android:id="@+id/arenaFragment"
+        android:title="Arena"
+        android:icon="@android:drawable/ic_menu_mapmode" />
+</menu>

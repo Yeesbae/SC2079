@@ -111,7 +111,7 @@ obstacles either via state.arena (cell flags) or state.obstacleBlocks
 detected imageId on obstacle from state.obstacleBlocks.targetId
 ```
 
-3) Manual Movement Controls
+### 3) Manual Movement Controls
 
 ```
 Buttons call:
