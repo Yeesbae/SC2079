@@ -1,5 +1,5 @@
 """
-PC端主入口文件
+PC-side main entry point
 """
 from config.config import get_config
 from tasks.task1_pc import main as task1_main
@@ -11,7 +11,7 @@ task_dict = {
 }
 
 if __name__ == "__main__":
-    # 选择任务
+    # Select task
     task_num = None
     while task_num is None:
         task_num_str = input("Enter task number (1 / 2) >> ")
@@ -24,9 +24,8 @@ if __name__ == "__main__":
         except:
             print("Please enter a valid number.")
     
-    # 获取配置
+    # Get configuration
     config = get_config()
     
-    # 运行对应的任务
+    # Run selected task
     task_dict[task_num](config)
-

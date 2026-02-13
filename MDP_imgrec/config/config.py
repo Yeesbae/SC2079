@@ -1,19 +1,19 @@
 """
-配置模块
-管理Task1和Task2的模型权重路径和参数
+Configuration module
+Manages model weight paths and parameters for Task1 and Task2
 """
 class Config():
     def __init__(self, task1_weights, task2_weights):
         self.is_outdoors = False
         self.conf_threshold = 0.65
-        # ========== 需要修改：改为你的模型文件路径 ==========
+        # ========== Modify as needed: set your model file paths ==========
         self.task1_weights = task1_weights
         self.task2_weights = task2_weights
         # ================================================
 
 class IndoorsConfig(Config):
     def __init__(self):
-        # ========== 需要修改：改为你的模型文件路径 ==========
+        # ========== Modify as needed: set your model file paths ==========
         Config.__init__(
             self,
             r'C:\Users\huang\Desktop\MDP_imgrec\models\V5.pt',
@@ -23,7 +23,7 @@ class IndoorsConfig(Config):
 
 class OutdoorsConfig(Config):
     def __init__(self):
-        # ========== 需要修改：改为你的模型文件路径 ==========
+        # ========== Modify as needed: set your model file paths ==========
         Config.__init__(
             self,
             r'C:\Users\huang\Desktop\MDP_imgrec\models\V5.pt',
@@ -35,7 +35,7 @@ class OutdoorsConfig(Config):
 
 def get_config():
     """
-    获取配置，根据用户输入选择室内或室外配置
+    Get configuration; select indoor or outdoor config based on user input
     """
     is_outdoors = None
     while is_outdoors is None:
@@ -47,4 +47,3 @@ def get_config():
         print("Please enter a valid character.")
     
     return OutdoorsConfig() if is_outdoors else IndoorsConfig()
-

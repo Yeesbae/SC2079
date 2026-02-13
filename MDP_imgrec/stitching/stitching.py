@@ -1,6 +1,6 @@
 """
-图像拼接模块
-用于将多个识别到的图像拼接成collage
+Image stitching module
+Stitches multiple recognized images into a collage
 """
 import cv2
 import numpy as np
@@ -9,14 +9,14 @@ from datetime import datetime as dt
 
 def add_to_stitching_dict(stitching_dict, img_id, conf_level, frame):
     """
-    将识别到的图像添加到拼接字典中
-    如果同一个图像ID已经有更高置信度的图像，则不更新
+    Add recognized image to stitching dictionary
+    If the same image ID already has a higher-confidence image, do not update
     
     Args:
-        stitching_dict: 存储图像的字典 {img_id: (confidence, frame)}
-        img_id: 图像ID
-        conf_level: 置信度
-        frame: 图像帧
+        stitching_dict: Dictionary storing images {img_id: (confidence, frame)}
+        img_id: Image ID
+        conf_level: Confidence level
+        frame: Image frame
     """
     if img_id not in stitching_dict or (
         stitching_dict[img_id][0] < conf_level
@@ -31,12 +31,12 @@ def add_to_stitching_dict(stitching_dict, img_id, conf_level, frame):
 
 def stitch_images(id_arr, stitching_dict, filename="task"):
     """
-    将多个图像拼接成collage
+    Stitch multiple images into a collage
     
     Args:
-        id_arr: 图像ID数组，按顺序拼接
-        stitching_dict: 存储图像的字典 {img_id: (confidence, frame)}
-        filename: 保存的文件名前缀
+        id_arr: Array of image IDs, stitched in order
+        stitching_dict: Dictionary storing images {img_id: (confidence, frame)}
+        filename: Output file name prefix
     """
     col_count = 0
 
@@ -72,4 +72,3 @@ def stitch_images(id_arr, stitching_dict, filename="task"):
     cv2.setWindowProperty(window_name, cv2.WND_PROP_TOPMOST, 1)
     cv2.waitKey(0)
     cv2.destroyAllWindows()
-
