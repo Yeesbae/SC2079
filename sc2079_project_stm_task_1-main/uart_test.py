@@ -10,9 +10,13 @@ Command Format (5 bytes): [CMD][DIR][D1][D2][D3]
 
 Examples:
 - SF050 = Move straight forward 50 cm
-- RF090 = Turn right 90 degrees
-- LF045 = Turn left 45 degrees
 - SB030 = Move straight backward 30 cm
+- RF090 = Turn right 90 degrees
+- RB090 = Turn right backward 90 degrees
+- LF045 = Turn left 45 degrees
+- LB045 = Turn left backward 45 degrees
+- UF000 = Ultrasonic command forward
+- GF000 = Gyro reset
 
 Acknowledgment: STM32 sends 'A' when command is completed
 """

@@ -341,7 +341,7 @@ int main(void)
 
   /* Create the thread(s) */
   /* creation of defaultTask */
-  //defaultTaskHandle = osThreadNew(StartDefaultTask, NULL, &defaultTask_attributes);
+  defaultTaskHandle = osThreadNew(StartDefaultTask, NULL, &defaultTask_attributes);
 
   /* creation of communicateTask */
   communicateTaskHandle = osThreadNew(startCommunicateTask, NULL, &communicateTask_attributes);
@@ -1026,14 +1026,25 @@ void StartDefaultTask(void *argument)
   /* USER CODE BEGIN 5 */
 	/* Infinite loop */
 	char str[10];
-	int ccr = 10;
 
+	for (;;){
+		pwmVal_servo = SERVOCENTER;
+		osDelay(3000);
 
-	pwmVal_servo = SERVOCENTER;
+		moveCarStraight(100);
+		osDelay(3000);
 
+		moveCarLeft(90);
+		osDelay(3000);
 
+		moveCarStraight(-100);
+		osDelay(3000);
 
+		moveCarRight(270);
+		osDelay(3000);
 
+		vTaskSuspend(NULL);
+	}
 
   /* USER CODE END 5 */
 }
