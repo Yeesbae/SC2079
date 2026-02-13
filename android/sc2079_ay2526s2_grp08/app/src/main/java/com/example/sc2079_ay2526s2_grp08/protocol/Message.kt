@@ -87,6 +87,15 @@ sealed interface Outgoing {
         val direction: RobotDirection
     ) : Outgoing
 
+    data class TaggedRobotRect(
+        val bottomLeftX: Int,
+        val bottomLeftY: Int,
+        val width: Int,
+        val height: Int,
+        val facing: RobotDirection
+    ) : Outgoing
+
+
     object RequestSync : Outgoing
 
     object StartExploration : Outgoing

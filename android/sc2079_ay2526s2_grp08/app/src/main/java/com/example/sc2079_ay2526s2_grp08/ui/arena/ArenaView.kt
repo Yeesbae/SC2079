@@ -50,21 +50,12 @@ class ArenaView @JvmOverloads constructor(
 
     fun setDragPreview(p: PlacedObstacle?) { dragPreview = p; invalidate() }
 
-
     private val gridSize = ArenaConfig.GRID_SIZE
 
-    var robotX: Int = 1
-        set(value) {
-            field = value.coerceIn(1, gridSize - 2)
-            invalidate()
-        }
-
-    var robotY: Int = 1
-        set(value) {
-            field = value.coerceIn(1, gridSize - 2)
-            invalidate()
-        }
-
+    private var robotBlX: Int = 0
+    private var robotBlY: Int = 0
+    private var robotW: Int = 3
+    private var robotH: Int = 3
     private var robotDir: RobotDirection = RobotDirection.NORTH
 
     private val gridPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -247,14 +238,21 @@ class ArenaView @JvmOverloads constructor(
                         obstacleIdPaint
                     )
                 }
+
+                when (rep?.targetDirection) {
+                    RobotDirection.NORTH -> canvas.drawLine(pxL, pxT, pxR, pxT, faceStrokePaint)
+                    RobotDirection.SOUTH -> canvas.drawLine(pxL, pxB, pxR, pxB, faceStrokePaint)
+                    RobotDirection.EAST  -> canvas.drawLine(pxR, pxT, pxR, pxB, faceStrokePaint)
+                    RobotDirection.WEST  -> canvas.drawLine(pxL, pxT, pxL, pxB, faceStrokePaint)
+                    null -> Unit
+                }
             }
         }
 
-
-        for (dx in -1..1) {
-            for (dy in -1..1) {
-                val gx = robotX + dx
-                val gy = robotY + dy
+        for (dx in 0 until robotW) {
+            for (dy in 0 until robotH) {
+                val gx = robotBlX + dx
+                val gy = robotBlY + dy
                 if (gx !in 0 until gridSize || gy !in 0 until gridSize) continue
 
                 val px = left + gx * cellPx
@@ -263,10 +261,10 @@ class ArenaView @JvmOverloads constructor(
             }
         }
 
-        val robotLeft = left + (robotX - 1) * cellPx
-        val robotRight = left + (robotX + 2) * cellPx
-        val robotTop = top + (gridSize - 1 - (robotY + 1)) * cellPx
-        val robotBottom = top + (gridSize - (robotY - 1)) * cellPx
+        val robotLeft   = left + robotBlX * cellPx
+        val robotRight  = left + (robotBlX + robotW) * cellPx
+        val robotTop    = top + (gridSize - (robotBlY + robotH)) * cellPx
+        val robotBottom = top + (gridSize - robotBlY) * cellPx
 
         val headPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             style = Paint.Style.STROKE
@@ -274,6 +272,17 @@ class ArenaView @JvmOverloads constructor(
             strokeWidth = dp(4f)
             strokeCap = Paint.Cap.ROUND
         }
+
+        val rPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = 0xFFFFFFFF.toInt()
+            textAlign = Paint.Align.CENTER
+            textSize = dp(14f)
+            isFakeBoldText = true
+        }
+
+        val cx = (robotLeft + robotRight) / 2f
+        val cy = (robotTop + robotBottom) / 2f
+        canvas.drawText("R", cx, cy + dp(5f), rPaint)
 
         when (robotDir) {
             RobotDirection.NORTH -> canvas.drawLine(robotLeft, robotTop, robotRight, robotTop, headPaint)
@@ -386,10 +395,11 @@ class ArenaView @JvmOverloads constructor(
         return super.onTouchEvent(event)
     }
 
-
-    fun setRobotPosition(x: Int, y: Int, dir: RobotDirection) {
-        robotX = x
-        robotY = y
+    fun setRobotRect(blX: Int, blY: Int, w: Int, h: Int, dir: RobotDirection) {
+        robotW = w.coerceAtLeast(1)
+        robotH = h.coerceAtLeast(1)
+        robotBlX = blX.coerceIn(0, gridSize - robotW)
+        robotBlY = blY.coerceIn(0, gridSize - robotH)
         robotDir = dir
         invalidate()
     }

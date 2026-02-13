@@ -15,7 +15,7 @@ object RobotReducer {
 
     fun ensureRobot(state: AppState): AppState {
         if (state.robot != null) return state
-        val r = RobotState(x = 1, y = 1, directionDeg = 0)
+        val r = RobotState(x = 0, y = 0, directionDeg = 0)
         return state.copy(robot = r)
     }
 
@@ -41,8 +41,8 @@ object RobotReducer {
         }
 
         val gridSize = s.arena?.width ?: ArenaConfig.GRID_SIZE
-        val nx = (robot.x + dx).coerceIn(1, gridSize - 2)
-        val ny = (robot.y + dy).coerceIn(1, gridSize - 2)
+        val nx = (robot.x + dx).coerceIn(0, gridSize - 2)
+        val ny = (robot.y + dy).coerceIn(0, gridSize - 2)
 
         return s.copy(robot = robot.copy(x = nx, y = ny))
     }

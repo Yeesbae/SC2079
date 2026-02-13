@@ -15,7 +15,7 @@ object ProtocolEncoder {
     /** Command string for move forward (AMD Tool default: "f") */
     var cmdForward: String = "f"
 
-    /** Command string for move backward (AMD Tool default: "b") */
+    /** Command string for move backward (AMD Tool default: "r") */
     var cmdBackward: String = "r"
 
     /** Command string for turn left (AMD Tool default: "tl") */
@@ -49,9 +49,16 @@ object ProtocolEncoder {
 
         // Format: "TAG,B1,bl=(x,y),w=2,h=2,img=11,face=N"
         is Outgoing.TaggedObstacleRect -> {
-            val img = msg.imageId ?: ""
-            val face = msg.facing?.let { DirectionUtil.toProtocolChar(it) } ?: ""
-            "TAG,${msg.obstacleId},(${msg.bottomLeftX},${msg.bottomLeftY}),${msg.width},${msg.height},$img,$face"
+            val parts = mutableListOf(
+                "TAG",
+                msg.obstacleId,
+                "bl=(${msg.bottomLeftX},${msg.bottomLeftY})",
+                "w=${msg.width}",
+                "h=${msg.height}"
+            )
+            msg.imageId?.takeIf { it.isNotBlank() }?.let { parts.add("img=$it") }
+            msg.facing?.let { parts.add("face=${DirectionUtil.toProtocolChar(it)}") }
+            parts.joinToString(",")
         }
 
         // Obstacle placement (C.6): "ADD,B1,(10,6)"
@@ -65,6 +72,11 @@ object ProtocolEncoder {
 
         // Robot position
         is Outgoing.SetRobotPosition -> "ROBOT,${msg.x},${msg.y},${DirectionUtil.toProtocolChar(msg.direction)}"
+
+        is Outgoing.TaggedRobotRect -> {
+            val face = DirectionUtil.toProtocolChar(msg.facing)
+            "ROBOT_TAG,(${msg.bottomLeftX},${msg.bottomLeftY}),${msg.width},${msg.height},$face"
+        }
 
         // Arena request
         is Outgoing.RequestSync -> cmdRequestArena

@@ -23,8 +23,6 @@ class ArenaFragment : Fragment() {
 
     private val viewModel by lazy { (requireActivity() as MainActivity).viewModel }
 
-    private var selectedId = 1
-
     override fun onCreateView(
         inflater: LayoutInflater,
         container: ViewGroup?,
@@ -84,7 +82,9 @@ class ArenaFragment : Fragment() {
         viewLifecycleOwner.lifecycleScope.launch {
             viewLifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
                 viewModel.state.collect { s ->
-                    s.robot?.let { arenaView.setRobotPosition(it.x, it.y, it.robotDirection) }
+                    s.robot?.let {
+                        arenaView.setRobotRect(it.x, it.y, it.robotX, it.robotY, it.robotDirection)
+                    }
                     arenaView.setArena(s.arena)
                     arenaView.setPendingPreview(s.pendingPreview)
                     arenaView.setPendingActive(s.pendingObstacle != null)

@@ -187,7 +187,7 @@ class MainViewModel(
             val next = PlacementReducer.commitPlaced(s, placed)
             if (p.obstacleId == null) next.copy(nextBlockageSeq = s.nextBlockageSeq + 1) else next
         }
-        sendAddForAllCells(placed)
+        sendObstacleRect(placed)
     }
 
     fun movePlaced(protocolId: String, bottomLeftX: Int, bottomLeftY: Int) {
@@ -199,7 +199,7 @@ class MainViewModel(
         _state.update { st -> PlacementReducer.commitPlaced(st, moved) }
         _state.update { it.copy(dragPreview = null) }
 
-        sendAddForAllCells(moved)
+        sendObstacleRect(moved)
     }
 
     fun previewMovePlaced(protocolId: String, bottomLeftX: Int, bottomLeftY: Int) {
@@ -221,11 +221,36 @@ class MainViewModel(
     /**
      * Send robot position to remote device.
      */
-    fun sendSetRobotPosition(x: Int, y: Int, direction: RobotDirection) {
-        send(Outgoing.SetRobotPosition(x, y, direction))
+
+    fun setRobotPose(blX: Int, blY: Int, w: Int, h: Int, facing: RobotDirection, alsoSend: Boolean = true) {
+        _state.update { s ->
+            val r0 = s.robot ?: RobotState(0, 0, 0)
+            s.copy(
+                robot = r0.copy(
+                    x = blX,
+                    y = blY,
+                    directionDeg = DirectionUtil.toDegrees(facing),
+                    robotX = w,
+                    robotY = h
+                )
+            )
+        }
+        if (alsoSend) sendRobotRect()
     }
 
-    fun sendRequestSync() = send(Outgoing.RequestSync)
+    private fun sendRobotRect() {
+        val r = _state.value.robot ?: return
+        val w = r.robotX.coerceAtLeast(1)
+        val h = r.robotY.coerceAtLeast(1)
+
+        val grid = ArenaConfig.GRID_SIZE
+        val blX = r.x.coerceIn(0, grid - w)
+        val blY = r.y.coerceIn(0, grid - h)
+
+        send(Outgoing.TaggedRobotRect(blX, blY, w, h, r.robotDirection))
+    }
+
+    //fun sendRequestSync() = send(Outgoing.RequestSync)
 
     fun sendStartExploration() = send(Outgoing.StartExploration)
     fun sendStartFastestPath() = send(Outgoing.StartFastestPath)
@@ -278,7 +303,7 @@ class MainViewModel(
 
         _state.update {
             it.copy(
-                robot = RobotState(x = 1, y = 1, directionDeg = 0),
+                robot = RobotState(x = 0, y = 0, directionDeg = 0),
                 statusText = null,
                 detections = emptyList(),
                 lastDetection = null,
@@ -291,7 +316,7 @@ class MainViewModel(
                 nextBlockageSeq = 1
             ).withArenaDerivedFromPlacedObstacles()
         }
-        send(Outgoing.SetRobotPosition(1, 1, RobotDirection.NORTH))
+        send(Outgoing.SetRobotPosition(0, 0, RobotDirection.NORTH))
         for (id in ids) send(Outgoing.RemoveObstacle(id))
     }
 
@@ -501,21 +526,8 @@ class MainViewModel(
 
     private fun handleRequestSync() {
         val s = _state.value
-        s.robot?.let {
-            send(Outgoing.SetRobotPosition(it.x, it.y, it.robotDirection))
-        }
-        s.placedObstacles.forEach { placed ->
-            for (dx in 0 until placed.width) for (dy in 0 until placed.height) {
-                val x = placed.bottomLeftX + dx
-                val y = placed.bottomLeftY + dy
-                send(Outgoing.AddObstacle(placed.protocolId, x, y))
-            }
-        }
-        s.placedObstacles.forEach { placed ->
-            if (placed.protocolId.startsWith("B") && placed.facing != null) {
-                send(Outgoing.SetObstacleFace(placed.protocolId, placed.facing))
-            }
-        }
+        s.placedObstacles.forEach { placed -> sendObstacleRect(placed) }
+        sendRobotRect()
     }
 
     private fun buildProtocolIdForPending(state: AppState, pending: PendingObstacle): String {
@@ -526,12 +538,18 @@ class MainViewModel(
         }
     }
 
-    private fun sendAddForAllCells(placed: PlacedObstacle) {
-        for (dx in 0 until placed.width) for (dy in 0 until placed.height) {
-            val x = placed.bottomLeftX + dx
-            val y = placed.bottomLeftY + dy
-            send(Outgoing.AddObstacle(placed.protocolId, x, y))
-        }
+    private fun sendObstacleRect(placed: PlacedObstacle) {
+        send(
+            Outgoing.TaggedObstacleRect(
+                obstacleId = placed.protocolId,
+                bottomLeftX = placed.bottomLeftX,
+                bottomLeftY = placed.bottomLeftY,
+                width = placed.width,
+                height = placed.height,
+                imageId = placed.targetId,
+                facing = placed.facing
+            )
+        )
     }
 
 
