@@ -36,3 +36,6 @@ dist/
 .settings/
 Debug/
 Release/
+
+# Training files
+train_v4_rpi.py

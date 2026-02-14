@@ -9,8 +9,15 @@ opencv-python>=4.8.0
 torch>=2.0.0
 torchvision>=0.15.0
 
-# Serial Communication (for Raspberry Pi)
+# Serial Communication (for STM32 UART)
 pyserial>=3.5
+
+# Bluetooth Communication (for Android)
+# Install system dependencies first:
+#   sudo apt install bluetooth bluez python3-bluez libbluetooth-dev
+pybluez>=0.23
 
 # Optional: For Raspberry Pi Camera Module
 # picamera2>=0.3.12  # Only install on Raspberry Pi
+
+# Note: multiprocessing is built into Python stdlib (no pip install needed)
