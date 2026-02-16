@@ -199,3 +199,86 @@ class MazeVisualizer:
 
         pygame.draw.line(self.screen, color, base, tip, 3)
         pygame.draw.polygon(self.screen, color, [tip, left, right])
+
+    def _bezier_position(self, p0, p1, t):
+        x0, y0 = p0.x, p0.y
+        x3, y3 = p1.x, p1.y
+
+        a0 = self._dir_to_angle(p0.direction)
+        a1 = self._dir_to_angle(p1.direction)
+
+        dx = x3 - x0
+        dy = y3 - y0
+        dist = math.hypot(dx, dy)
+        control_len = 0.5 * dist
+
+        hx0, hy0 = self._heading_vec(a0)
+        hx1, hy1 = self._heading_vec(a1)
+
+        dot = dx * hx0 + dy * hy0
+        reversing = dot < 0
+
+        if reversing:
+            hx0, hy0 = -hx0, -hy0
+            hx1, hy1 = -hx1, -hy1
+
+        x1 = x0 + control_len * hx0
+        y1 = y0 + control_len * hy0
+        x2 = x3 - control_len * hx1
+        y2 = y3 - control_len * hy1
+
+        xt = (
+            (1 - t) ** 3 * x0 +
+            3 * (1 - t) ** 2 * t * x1 +
+            3 * (1 - t) * t ** 2 * x2 +
+            t ** 3 * x3
+        )
+        yt = (
+            (1 - t) ** 3 * y0 +
+            3 * (1 - t) ** 2 * t * y1 +
+            3 * (1 - t) * t ** 2 * y2 +
+            t ** 3 * y3
+        )
+
+        return xt, yt
+
+    def animate_transition(self, p0, p1, obstacles, path, upto_idx, frames=10):
+        clock = pygame.time.Clock()
+
+        # Straight move
+        if p0.direction == p1.direction:
+            for i in range(1, frames + 1):
+                t = i / frames
+                x = p0.x + t * (p1.x - p0.x)
+                y = p0.y + t * (p1.y - p0.y)
+
+                # Temporary state object
+                temp_state = type(p0)(x, y, p0.direction)
+
+                self.draw_frame(temp_state, obstacles, path, upto_idx)
+                clock.tick(60)
+
+        # Turning move
+        else:
+            for i in range(1, frames + 1):
+                t = i / frames
+
+                # Position from Bezier
+                x, y = self._bezier_position(p0, p1, t)
+
+                # Interpolate angle smoothly
+                a0 = self._dir_to_angle(p0.direction)
+                a1 = self._dir_to_angle(p1.direction)
+
+                # Shortest rotation interpolation
+                angle = a0 + t * (a1 - a0)
+
+                temp_state = type(p0)(x, y, p0.direction)
+                temp_state.direction = p0.direction  # not used for angle
+                self.draw_frame(temp_state, obstacles, path, upto_idx)
+
+                # Draw rotated arrow manually
+                self._draw_arrow(x, y, angle, self.COLOR_ROBOT, 0.7)
+                pygame.display.flip()
+
+                clock.tick(60)

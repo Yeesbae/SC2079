@@ -7,22 +7,22 @@ from Util.helper import capture_image
 
 def task_1():
     # Start robot at (2, 2) facing NORTH
-    solver = MazeSolver(size_x=ARENA_WIDTH, size_y=ARENA_HEIGHT, robot_x=2, robot_y=2, robot_direction=Direction.NORTH)
+    solver = MazeSolver(size_x=ARENA_WIDTH, size_y=ARENA_HEIGHT, robot_x=3, robot_y=3, robot_direction=Direction.NORTH)
     
-    solver.add_obstacle(x=6,  y=6,  direction=Direction.NORTH, obstacle_id=1)
-    solver.add_obstacle(x=30, y=6,  direction=Direction.WEST,  obstacle_id=2)
-    solver.add_obstacle(x=6,  y=30, direction=Direction.EAST,  obstacle_id=3)
-    solver.add_obstacle(x=30, y=30, direction=Direction.SOUTH, obstacle_id=4)
-    solver.add_obstacle(x=18, y=18, direction=Direction.WEST,  obstacle_id=5)
+    # solver.add_obstacle(x=6,  y=6,  direction=Direction.NORTH, obstacle_id=1)
+    # solver.add_obstacle(x=30, y=6,  direction=Direction.WEST,  obstacle_id=2)
+    # solver.add_obstacle(x=6,  y=30, direction=Direction.EAST,  obstacle_id=3)
+    # solver.add_obstacle(x=30, y=30, direction=Direction.SOUTH, obstacle_id=4)
+    # solver.add_obstacle(x=18, y=18, direction=Direction.WEST,  obstacle_id=5)
 
-    # solver.add_obstacle(x=2,  y=15,  direction=Direction.SOUTH, obstacle_id=1)
-    # solver.add_obstacle(x=16, y=4,  direction=Direction.EAST,  obstacle_id=2)
-    # solver.add_obstacle(x=34, y=4,  direction=Direction.NORTH, obstacle_id=3)
-    # solver.add_obstacle(x=29, y=16, direction=Direction.NORTH,  obstacle_id=4)
-    # solver.add_obstacle(x=13, y=24, direction=Direction.EAST, obstacle_id=5)
-    # solver.add_obstacle(x=4, y=35, direction=Direction.SOUTH,  obstacle_id=6)
-    # solver.add_obstacle(x=18, y=35, direction=Direction.EAST, obstacle_id=7)
-    # solver.add_obstacle(x=34, y=35, direction=Direction.WEST,  obstacle_id=8)
+    solver.add_obstacle(x=2,  y=15,  direction=Direction.SOUTH, obstacle_id=1)
+    solver.add_obstacle(x=16, y=4,  direction=Direction.EAST,  obstacle_id=2)
+    solver.add_obstacle(x=34, y=4,  direction=Direction.NORTH, obstacle_id=3)
+    solver.add_obstacle(x=29, y=16, direction=Direction.NORTH,  obstacle_id=4)
+    solver.add_obstacle(x=13, y=24, direction=Direction.EAST, obstacle_id=5)
+    solver.add_obstacle(x=4, y=35, direction=Direction.SOUTH,  obstacle_id=6)
+    solver.add_obstacle(x=18, y=35, direction=Direction.EAST, obstacle_id=7)
+    solver.add_obstacle(x=34, y=35, direction=Direction.WEST,  obstacle_id=8)
 
     # 4 Obs around 20.31 seconds
     # 5 Obs around 29.75 seconds
@@ -53,23 +53,41 @@ def task_1():
     
     path_index = 0
     running = True
-    paused = False
-    
+
     while running:
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
+
             if event.type == pygame.KEYDOWN:
+
                 if event.key == pygame.K_r:
                     path_index = 0
-                if event.key == pygame.K_SPACE:
-                    paused = not paused
+                    print(f"[RESET] Index {path_index}: {optimal_path[path_index]}")
 
-        if not paused and path_index < len(optimal_path) - 1:
-            print(optimal_path[path_index])
-            path_index += 1
-            if path_index == len(optimal_path) - 1:
-                print(optimal_path[path_index])
+                elif event.key == pygame.K_RIGHT:
+                    if path_index < len(optimal_path) - 1:
+                        viz.animate_transition(
+                            optimal_path[path_index],
+                            optimal_path[path_index + 1],
+                            solver.grid.obstacles,
+                            optimal_path,
+                            path_index
+                        )
+                        path_index += 1
+                        print(f"[RIGHT] Index {path_index}: {optimal_path[path_index]}")
+
+                elif event.key == pygame.K_LEFT:
+                    if path_index > 0:
+                        viz.animate_transition(
+                            optimal_path[path_index],
+                            optimal_path[path_index - 1],
+                            solver.grid.obstacles,
+                            optimal_path,
+                            path_index
+                        )
+                        path_index -= 1
+                        print(f"[LEFT] Index {path_index}: {optimal_path[path_index]}")
 
         viz.draw_frame(
             optimal_path[path_index],
@@ -78,7 +96,7 @@ def task_1():
             path_index
         )
 
-        clock.tick(10)
+        clock.tick(60)
 
     pygame.quit()
 
@@ -239,6 +257,6 @@ def task_2():
 if __name__ == "__main__":
     print("Starting Task 1: Visit all Obstacles & Capture all images")
     task_1()
-    print("\n============================================================================\n")
-    print("Starting Task 2: Visit all images & Follow Direction & Go Back to Start")
-    task_2()
+    # print("\n============================================================================\n")
+    # print("Starting Task 2: Visit all images & Follow Direction & Go Back to Start")
+    # task_2()
