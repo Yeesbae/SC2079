@@ -26,6 +26,7 @@ class BluetoothManager (private val appCtx: Context) {
         data class DeviceFound(val label: String, val device: BluetoothDevice) : Event()
         data class DiscoveryFinished(val foundCount: Int) : Event()
         data class LineReceived(val line: String) : Event()
+        data class ImageReceived(val obstacleId: String, val targetId: String, val face: String?, val bytes: ByteArray) : Event()
         data class EchoReceived(val line: String) : Event()
         data class SendRejected(val reason: SendRejectReason, val message: String? = null) : Event()
         data class Log(val message: String) : Event()
@@ -53,6 +54,9 @@ class BluetoothManager (private val appCtx: Context) {
         onLine = { line, isEcho ->
             if (isEcho) onEvent?.invoke(Event.EchoReceived(line))
             else onEvent?.invoke(Event.LineReceived(line))
+        }
+        onImage = { obstacleId, targetId, face, bytes ->
+            onEvent?.invoke(Event.ImageReceived(obstacleId, targetId, face, bytes))
         }
         onSendError = { msg ->
             onEvent?.invoke(Event.SendRejected(SendRejectReason.IO_ERROR, msg))

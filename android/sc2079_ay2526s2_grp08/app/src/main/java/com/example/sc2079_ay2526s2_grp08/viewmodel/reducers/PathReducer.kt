@@ -1,6 +1,7 @@
 package com.example.sc2079_ay2526s2_grp08.viewmodel.reducers
 
 import com.example.sc2079_ay2526s2_grp08.domain.*
+import com.example.sc2079_ay2526s2_grp08.domain.util.DirectionUtil
 import com.example.sc2079_ay2526s2_grp08.protocol.Incoming
 
 /**
@@ -29,7 +30,7 @@ object PathReducer {
 
         return state.copy(
             pathExecution = path.copy(currentIndex = nextIndex),
-            robot = RobotState(pose.x, pose.y, pose.directionDeg, rx, ry)
+            robot = RobotState(pose.x, pose.y, DirectionUtil.toDegrees(pose.direction), rx, ry)
         )
     }
 
@@ -44,7 +45,7 @@ object PathReducer {
 
         return state.copy(
             pathExecution = path.copy(currentIndex = prevIndex),
-            robot = RobotState(pose.x, pose.y, pose.directionDeg, rx, ry)
+            robot = RobotState(pose.x, pose.y, DirectionUtil.toDegrees(pose.direction), rx, ry)
         )
     }
 
@@ -62,7 +63,7 @@ object PathReducer {
         val pose = msg.pose
         val rx = state.robot?.robotX ?: 3
         val ry = state.robot?.robotY ?: 3
-        return state.copy(robot = RobotState(pose.x, pose.y, pose.directionDeg, rx, ry))
+        return state.copy(robot = RobotState(pose.x, pose.y, DirectionUtil.toDegrees(pose.direction), rx, ry))
     }
 
     fun onPathComplete(state: AppState): AppState {

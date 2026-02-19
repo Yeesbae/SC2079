@@ -1,7 +1,6 @@
 package com.example.sc2079_ay2526s2_grp08.protocol
 
 import com.example.sc2079_ay2526s2_grp08.domain.RobotDirection
-import com.example.sc2079_ay2526s2_grp08.domain.RobotPose
 import com.example.sc2079_ay2526s2_grp08.domain.util.DirectionUtil
 import org.json.JSONArray
 import org.json.JSONObject
@@ -43,37 +42,43 @@ object ProtocolParser {
     }
 
     private fun parseMdpProtocol(raw: String): Incoming? {
-        // Split by comma, handling various formats
         val parts = raw.split(",").map { it.trim() }
         if (parts.isEmpty()) return null
 
         val command = parts[0].uppercase()
 
         return when (command) {
-            // C.10: Robot position - "ROBOT,<x>,<y>,<direction>"
-            "ROBOT" -> parseRobotPosition(parts)
 
-            // C.9: Target detection - "TARGET,<obstacle>,<targetId>[,<face>]"
+            // Compact Robot position: "R,x,y,d"
+            "ROBOT" -> parseRobotPosition(parts)
+            "R" -> parseRobotPosition(parts)
+
+            // Compact Target detection: "T,B2,11,N"
             "TARGET" -> parseTargetDetected(parts)
 
-            // C.4: Status message - "MSG,[text]" or "STATUS,<text>"
             "MSG" -> parseStatusMessage(raw)
             "STATUS" -> if (parts.size >= 2) Incoming.StatusUpdate(parts.drop(1).joinToString(",")) else null
+            "M" -> Incoming.StatusUpdate(parts.drop(1).joinToString(","))
 
-            // Obstacle management (echoed from AMD Tool)
-            "ADD" -> parseObstacleAdded(parts)
-            "SUB" -> if (parts.size >= 2) Incoming.ObstacleRemoved(parts[1]) else null
-
-            // Path control
+            // ---- Path control ----
+            "PATH_BEGIN" -> Incoming.PathBegin(parts.getOrNull(1)?.toIntOrNull())
             "PATH_COMPLETE", "PATHCOMPLETE" -> Incoming.PathComplete
+            "PATH_END" -> Incoming.PathEnd
             "PATH_ABORT", "PATHABORT" -> Incoming.PathAbort
+            "P" -> parseRobotPosition(parts)
 
-            // Sync request
             "REQUEST_SYNC", "REQUESTSYNC", "SYNC", "SEND_ARENA" -> Incoming.RequestSync
+
+            // Compact Explore start echo
+            "E" -> Incoming.StatusUpdate("Exploration started")
+
+            // Compact Fastest start echo
+            "F" -> Incoming.StatusUpdate("Fastest path started")
 
             else -> null
         }
     }
+
 
     /**
      * Parse robot position: "ROBOT,<x>,<y>,<direction>"
@@ -263,13 +268,14 @@ object ProtocolParser {
     private fun parseJsonPathSequence(obj: JSONObject): Incoming? {
         return try {
             val arr = obj.optJSONArray("path") ?: obj.optJSONArray("poses") ?: return null
-            val poses = mutableListOf<RobotPose>()
+            val poses = mutableListOf<Incoming.RobotPosition>()
             for (i in 0 until arr.length()) {
                 val pose = arr.getJSONObject(i)
                 val x = pose.getInt("x")
                 val y = pose.getInt("y")
-                val d = pose.optInt("direction", pose.optInt("dir", pose.optInt("d", 0)))
-                poses.add(RobotPose(x, y, d))
+                val d = pose.optString("direction", pose.optString("dir", pose.optString("d", "")))
+                val dir = DirectionUtil.fromProtocolToken(d)
+                poses.add(Incoming.RobotPosition(x,y,dir))
             }
             if (poses.isNotEmpty()) Incoming.PathSequence(poses) else null
         } catch (_: Exception) {
@@ -281,8 +287,9 @@ object ProtocolParser {
         return try {
             val x = obj.getInt("x")
             val y = obj.getInt("y")
-            val d = obj.optInt("direction", obj.optInt("dir", obj.optInt("d", 0)))
-            Incoming.PathStep(RobotPose(x, y, d))
+            val d = obj.optString("direction", obj.optString("dir", obj.optString("d", "")))
+            val dir = DirectionUtil.fromProtocolToken(d)
+            Incoming.PathStep(Incoming.RobotPosition(x, y, dir))
         } catch (_: Exception) {
             null
         }
@@ -291,13 +298,14 @@ object ProtocolParser {
     private fun parseJsonArray(raw: String): Incoming? {
         return try {
             val arr = JSONArray(raw)
-            val poses = mutableListOf<RobotPose>()
+            val poses = mutableListOf<Incoming.RobotPosition>()
             for (i in 0 until arr.length()) {
                 val pose = arr.getJSONObject(i)
                 val x = pose.getInt("x")
                 val y = pose.getInt("y")
-                val d = pose.optInt("direction", pose.optInt("dir", pose.optInt("d", 0)))
-                poses.add(RobotPose(x, y, d))
+                val d = pose.optString("direction", pose.optString("dir", pose.optString("d", "")))
+                val dir = DirectionUtil.fromProtocolToken(d)
+                poses.add(Incoming.RobotPosition(x, y, dir))
             }
             if (poses.isNotEmpty()) Incoming.PathSequence(poses) else null
         } catch (_: Exception) {

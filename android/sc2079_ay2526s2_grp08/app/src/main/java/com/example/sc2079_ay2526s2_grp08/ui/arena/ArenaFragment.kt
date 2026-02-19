@@ -9,6 +9,7 @@ import android.widget.Button
 import android.widget.EditText
 import android.widget.Spinner
 import android.widget.TextView
+import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.Lifecycle
@@ -17,6 +18,7 @@ import androidx.lifecycle.repeatOnLifecycle
 import com.example.sc2079_ay2526s2_grp08.MainActivity
 import com.example.sc2079_ay2526s2_grp08.R
 import com.example.sc2079_ay2526s2_grp08.domain.*
+import com.example.sc2079_ay2526s2_grp08.domain.util.DirectionUtil
 import kotlinx.coroutines.launch
 
 class ArenaFragment : Fragment() {
@@ -43,7 +45,6 @@ class ArenaFragment : Fragment() {
         view.findViewById<Button>(R.id.btnObs6)?.setOnClickListener { showObstacleConfigDialog(6) }
         view.findViewById<Button>(R.id.btnObs7)?.setOnClickListener { showObstacleConfigDialog(7) }
         view.findViewById<Button>(R.id.btnObs8)?.setOnClickListener { showObstacleConfigDialog(8) }
-        view.findViewById<Button>(R.id.btnBlock)?.setOnClickListener { showObstacleConfigDialog(null) }
 
         arenaView.setListener(object : ArenaView.Listener {
             override fun onArenaCellTap(x: Int, y: Int) {
@@ -62,8 +63,9 @@ class ArenaFragment : Fragment() {
             }
             override fun onPlacedTap(protocolId: String) {
                 if (protocolId.startsWith("B")) {
-                    showFaceDialog(protocolId)
-                } else {}
+                    viewModel.selectObstacle(protocolId)
+                    showObstacleDetailsDialog(protocolId)
+                }
             }
 
             override fun onPlacedDrag(protocolId: String, x: Int, y: Int) {
@@ -94,74 +96,135 @@ class ArenaFragment : Fragment() {
         }
     }
 
-    private fun showFaceDialog(protocolId: String) {
-        val options = arrayOf("N", "E", "S", "W")
+    private fun showObstacleDetailsDialog(protocolId: String){
+        val dialogView = layoutInflater.inflate(R.layout.dialog_obstacle_details, null)
+
+        val tabConfig = dialogView.findViewById<TextView>(R.id.tabConfig)
+        val tabImage = dialogView.findViewById<TextView>(R.id.tabImage)
+
+        val panelConfig = dialogView.findViewById<View>(R.id.panelConfig)
+        val panelImage = dialogView.findViewById<View>(R.id.panelImage)
+
+        val spFacing = dialogView.findViewById<Spinner>(R.id.spFacing)
+        spFacing.adapter = ArrayAdapter(requireContext(), android.R.layout.simple_spinner_dropdown_item, DirectionUtil.faces)
+
+        val iv = dialogView.findViewById<android.widget.ImageView>(R.id.ivObstacleImage)
+        val tvEmpty = dialogView.findViewById<TextView>(R.id.tvNoImage)
+
+        fun switchToConfig() {
+            panelConfig.visibility = View.VISIBLE
+            panelImage.visibility = View.GONE
+            tabConfig.isSelected = true
+            tabImage.isSelected = false
+        }
+
+        fun switchToImage() {
+            panelConfig.visibility = View.GONE
+            panelImage.visibility = View.VISIBLE
+            tabConfig.isSelected = false
+            tabImage.isSelected = true
+
+            val bytes = viewModel.state.value.obstacleImages[protocolId]
+            if (bytes == null || bytes.isEmpty()) {
+                iv.setImageDrawable(null)
+                iv.visibility = View.GONE
+                tvEmpty.visibility = View.VISIBLE
+            } else {
+                val bmp = decodeScaled(bytes, 900, 900)
+                if (bmp != null) {
+                    iv.setImageBitmap(bmp)
+                    iv.visibility = View.VISIBLE
+                    tvEmpty.visibility = View.GONE
+                } else {
+                    iv.setImageDrawable(null)
+                    iv.visibility = View.GONE
+                    tvEmpty.visibility = View.VISIBLE
+                    tvEmpty.text = "Unable to decode image"
+                }
+            }
+        }
+
+        tabConfig.setOnClickListener { switchToConfig() }
+        tabImage.setOnClickListener { switchToImage() }
+
+        switchToConfig()
 
         AlertDialog.Builder(requireContext())
-            .setTitle("Obstacle $protocolId facing")
-            .setItems(options) { _, which ->
-                val face = when (options[which]) {
-                    "N" -> RobotDirection.NORTH
-                    "E" -> RobotDirection.EAST
-                    "S" -> RobotDirection.SOUTH
-                    "W" -> RobotDirection.WEST
-                    else -> RobotDirection.NORTH
-                }
-                viewModel.setPlacedFacing(protocolId, face)
+            .setTitle("Obstacle $protocolId")
+            .setView(dialogView)
+            .setPositiveButton("Save") { _, _ ->
+                val facing = RobotDirection.valueOf(spFacing.selectedItem.toString())
+                viewModel.setPlacedFacing(protocolId, facing)
             }
-
-            .setNegativeButton("Cancel", null)
+            .setNegativeButton("Close", null)
             .show()
     }
 
-    private fun showObstacleConfigDialog(obstacleId: Int?) {
+    private fun showObstacleConfigDialog(obstacleId: Int) {
         viewModel.pickObstacleToConfigure(obstacleId)
-
         val dialogView = layoutInflater.inflate(R.layout.dialog_obstacle_config, null)
 
+        val etX = dialogView.findViewById<EditText>(R.id.etX)
+        val etY = dialogView.findViewById<EditText>(R.id.etY)
         val etWidth = dialogView.findViewById<EditText>(R.id.etWidth)
         val etHeight = dialogView.findViewById<EditText>(R.id.etHeight)
         val spFacing = dialogView.findViewById<Spinner>(R.id.spFacing)
-        val tvFacingLabel = dialogView.findViewById<TextView>(R.id.tvFacingLabel)
 
-        // defaults
         etWidth.setText("2")
         etHeight.setText("2")
 
-        val isBlock = obstacleId == null
-        if (isBlock) {
-            tvFacingLabel.visibility = View.GONE
-            spFacing.visibility = View.GONE
-        } else {
-            val faces = listOf("N", "E", "S", "W")
-            spFacing.adapter = ArrayAdapter(
-                requireContext(),
-                android.R.layout.simple_spinner_dropdown_item,
-                faces
-            )
-        }
+        spFacing.adapter = ArrayAdapter(requireContext(), android.R.layout.simple_spinner_dropdown_item, DirectionUtil.faces)
 
         AlertDialog.Builder(requireContext())
-            .setTitle(if (isBlock) "Configure Blockage" else "Configure Obstacle B$obstacleId")
+            .setTitle("Configure Obstacle B$obstacleId")
             .setView(dialogView)
-            .setPositiveButton("OK") { _, _ ->
+            .setPositiveButton("Confirm") { _, _ ->
+                val xText = etX.text.toString().trim()
+                val yText = etY.text.toString().trim()
                 val w = etWidth.text.toString().toIntOrNull() ?: 1
                 val h = etHeight.text.toString().toIntOrNull() ?: 1
+                val facing = RobotDirection.valueOf(spFacing.selectedItem.toString())
 
-                val facing =
-                    if (isBlock) null
-                    else when (spFacing.selectedItem as String) {
-                        "N" -> RobotDirection.NORTH
-                        "E" -> RobotDirection.EAST
-                        "S" -> RobotDirection.SOUTH
-                        else -> RobotDirection.WEST
-                    }
+                val hasX = xText.isNotEmpty()
+                val hasY = yText.isNotEmpty()
 
                 viewModel.updatePendingConfig(w, h, facing)
+
+                when {
+                    hasX && hasY -> {
+                        val x = xText.toIntOrNull()
+                        val y = yText.toIntOrNull()
+                        if(x == null || y == null) return@setPositiveButton
+                        viewModel.placeObstacleDirect(id, x, y, w, h, facing)
+                    }
+
+                    else -> {}
+                }
             }
             .setNegativeButton("Cancel") { _, _ ->
                 viewModel.cancelPending()
             }
             .show()
+    }
+
+    private fun decodeScaled(bytes: ByteArray, reqW: Int, reqH: Int): android.graphics.Bitmap? {
+        return try {
+            val opts = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size, opts)
+
+            opts.inSampleSize = calculateInSampleSize(opts, reqW, reqH)
+            opts.inJustDecodeBounds = false
+
+            android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size, opts)
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    private fun calculateInSampleSize(opts: android.graphics.BitmapFactory.Options, reqW: Int, reqH: Int): Int {
+        val (h, w) = opts.outHeight to opts.outWidth
+        var inSample = 1
+        while (h / inSample > reqH || w / inSample > reqW) inSample *= 2
+        return inSample
     }
 }

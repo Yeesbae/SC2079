@@ -43,5 +43,32 @@
     <Spinner
         android:id="@+id/spFacing"
         android:layout_width="match_parent"
-        android:layout_height="wrap_content" />
+        android:layout_height="wrap_content"
+        android:layout_marginBottom="8dp"/>
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Bottom Left X (optional)"
+        android:textStyle="bold"
+        android:layout_marginTop="8dp" />
+
+    <EditText
+        android:id="@+id/etX"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:inputType="number" />
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Bottom Left Y (optional)"
+        android:textStyle="bold"
+        android:layout_marginTop="8dp" />
+
+    <EditText
+        android:id="@+id/etY"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:inputType="number" />
 </LinearLayout>

@@ -1,7 +1,6 @@
 package com.example.sc2079_ay2526s2_grp08.protocol
 
 import com.example.sc2079_ay2526s2_grp08.domain.RobotDirection
-import com.example.sc2079_ay2526s2_grp08.domain.RobotPose
 
 sealed interface Incoming {
 
@@ -12,9 +11,9 @@ sealed interface Incoming {
     ) : Incoming
 
     data class TargetDetected(
-        val obstacleId: String,         // e.g., "B2", "1", etc.
-        val targetId: String,           // The image ID detected (e.g., "11")
-        val face: RobotDirection?       // Optional: which face the target was found on
+        val obstacleId: String,
+        val targetId: String,
+        val face: RobotDirection?
     ) : Incoming
 
     data class StatusUpdate(val message: String) : Incoming
@@ -32,10 +31,12 @@ sealed interface Incoming {
 
     data class ObstacleRemoved(val obstacleId: String) : Incoming
 
-    data class PathSequence(val poses: List<RobotPose>) : Incoming
-    data class PathStep(val pose: RobotPose) : Incoming
+    data class PathBegin(val count: Int? = null) : Incoming
+    data class PathSequence(val poses: List<RobotPosition>) : Incoming
+    data class PathStep(val pose: RobotPosition) : Incoming
     object PathComplete : Incoming
     object PathAbort : Incoming
+    object PathEnd : Incoming
 
     object RequestSync : Incoming
 

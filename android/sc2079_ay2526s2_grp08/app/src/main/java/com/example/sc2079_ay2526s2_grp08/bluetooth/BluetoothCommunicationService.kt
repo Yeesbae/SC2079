@@ -26,9 +26,17 @@ internal class BluetoothCommunicationService(
     private val echoTracker = EchoTracker(echoWindow)
     private val lineBuilder = LineBuilder()
 
+    @Volatile private var expectingImageBytes: Int = 0
+    private var imgObstacleId: String? = null
+    private var imgTargetId: String? = null
+    private var imgFace: String? = null
+    private var imgBuf: ByteArray? = null
+    private var imgOff: Int = 0
+
     var onLine: ((String, isEcho: Boolean) -> Unit)? = null
     var onSessionEnded: ((BluetoothManager.DisconnectReason, String?) -> Unit)? = null
     var onSendError: ((String) -> Unit)? = null
+    var onImage: ((obstacleId: String, targetId: String, face: String?, bytes: ByteArray) -> Unit)? = null
 
     fun isActive(): Boolean = running.get() && socket != null
 
@@ -49,7 +57,7 @@ internal class BluetoothCommunicationService(
     fun sendLine(lineNoNewline: String): Boolean {
         if (!running.get() || socket == null) return false
 
-        val toSend = lineNoNewline.trim()
+        val toSend = lineNoNewline.trimEnd('\r','\n',' ')
         if (toSend.isEmpty()) return true
 
         echoTracker.rememberSent(toSend)
@@ -107,27 +115,80 @@ internal class BluetoothCommunicationService(
                 while (running.get()) {
                     val n = input.read(buf)
                     if (n <= 0) {
-                        closeSessionInternal(BluetoothManager.DisconnectReason.REMOTE, "Remote closed connection")
+                        closeSessionInternal(
+                            BluetoothManager.DisconnectReason.REMOTE,
+                            "Remote closed connection"
+                        )
                         break
                     }
 
-                    val hadDelimiter = lineBuilder.append(buf, n) { line ->
-                        val isEcho = echoTracker.isEcho(line)
-                        onLine?.invoke(line, isEcho)
-                    }
+                    var offset = 0
 
-                    if (!hadDelimiter && lineBuilder.shouldIdleFlush(120)) {
-                        lineBuilder.flush { line ->
-                            val isEcho = echoTracker.isEcho(line)
-                            onLine?.invoke(line, isEcho)
+                    while (offset < n) {
+                        if (expectingImageBytes > 0) {
+                            val take = minOf(expectingImageBytes, n - offset)
+
+                            val out = imgBuf ?: ByteArray(expectingImageBytes).also {
+                                imgBuf = it
+                            }
+
+                            System.arraycopy(buf, offset, out, imgOff, take)
+
+                            imgOff += take
+                            expectingImageBytes -= take
+                            offset += take
+
+                            if (expectingImageBytes == 0) {
+                                val obstacleId = imgObstacleId
+                                val targetId = imgTargetId
+                                val face = imgFace
+                                val bytes = imgBuf
+
+                                imgObstacleId = null
+                                imgTargetId = null
+                                imgFace = null
+                                imgBuf = null
+                                imgOff = 0
+
+                                if (obstacleId != null && targetId != null && bytes != null) {
+                                    onImage?.invoke(obstacleId, targetId, face, bytes)
+                                }
+                            }
+
+                            continue
                         }
+
+                        val b = buf[offset]
+
+                        if (b == '\n'.code.toByte() || b == '\r'.code.toByte()) {
+                            val line = lineBuilder.consumeLine()
+
+                            if (line != null) {
+                                val hdr = parseImageHeader(line)
+                                if (hdr != null) {
+                                    expectingImageBytes = hdr.len
+                                    imgObstacleId = hdr.obstacleId
+                                    imgTargetId = hdr.targetId
+                                    imgFace = hdr.face
+                                    imgBuf = ByteArray(hdr.len)
+                                    imgOff = 0
+                                } else {
+                                    val isEcho = echoTracker.isEcho(line)
+                                    onLine?.invoke(line, isEcho)
+                                }
+                            }
+                        } else {
+                            lineBuilder.appendByte(b)
+                        }
+                        offset++
                     }
                 }
+
             } catch (e: Exception) {
                 val msg = e.message ?: e.javaClass.simpleName
                 val reason =
-                    if (msg.contains("read return: -1", ignoreCase = true) ||
-                        msg.contains("socket closed", ignoreCase = true)
+                    if (msg.contains("read return: -1", true) ||
+                        msg.contains("socket closed", true)
                     ) BluetoothManager.DisconnectReason.REMOTE
                     else BluetoothManager.DisconnectReason.ERROR
 
@@ -135,6 +196,7 @@ internal class BluetoothCommunicationService(
             }
         }.also { it.start() }
     }
+
 
     @Synchronized
     private fun closeSessionInternal(reason: BluetoothManager.DisconnectReason?, msg: String?) {
@@ -200,35 +262,45 @@ internal class BluetoothCommunicationService(
         fun reset() = synchronized(q) { q.clear() }
     }
 
+    //bytes stream detection outside of protocolparser as it is not a linebreak
+    private fun parseImageHeader(line: String): ImageHeader? {
+        val parts = line.split(",").map { it.trim() }
+        if (parts.size < 6) return null
+        if (parts[0].uppercase() != "T") return null
+
+        val obstacleId = parts[1]
+        val targetId = parts[2]
+        val face = parts[3].takeIf { it != "-" && it.isNotBlank() }
+
+        val typeMarker = parts[4]
+        val len = parts[5].toIntOrNull() ?: return null
+
+        if (len <= 0 || len > 2_000_000) return null
+
+        return ImageHeader(obstacleId, targetId, face, typeMarker, len)
+    }
+
+    private data class ImageHeader(val obstacleId: String, val targetId: String, val face: String?, val typeMarker: String?, val len: Int)
+
     private class LineBuilder {
         private val buf = ByteArrayOutputStream()
-        @Volatile private var lastAppendMs: Long = 0
 
-        fun append(bytes: ByteArray, n: Int, onLine: (String) -> Unit): Boolean {
-            var emitted = false
-            for (i in 0 until n) {
-                when (val b = bytes[i]) {
-                    '\n'.code.toByte(), '\r'.code.toByte() -> {
-                        emitted = true
-                        flush(onLine)
-                    }
-                    else -> buf.write(b.toInt())
-                }
-            }
-            return emitted
+        fun appendByte(b: Byte){
+            buf.write(b.toInt())
+        }
+
+        fun consumeLine(): String? {
+            val line = buf.toString(Charsets.UTF_8.name()).trim()
+            buf.reset()
+            return if (line.isNotEmpty()) line else null
         }
 
         fun flush(onLine: (String) -> Unit) {
             val line = buf.toString(Charsets.UTF_8.name()).trim()
             buf.reset()
-            if (line.isNotEmpty()) onLine(line)
+            val cleaned = line.trim()
+            if (cleaned.isNotEmpty()) onLine(cleaned)
         }
-
-        fun shouldIdleFlush(idleMs: Long): Boolean {
-            return buf.size() > 0 && (System.currentTimeMillis() - lastAppendMs) >= idleMs
-        }
-
-        fun hasPending(): Boolean = buf.size() > 0
 
         fun reset() = buf.reset()
     }

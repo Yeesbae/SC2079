@@ -1,6 +1,7 @@
 package com.example.sc2079_ay2526s2_grp08.domain
 
 import com.example.sc2079_ay2526s2_grp08.bluetooth.BluetoothManager
+import com.example.sc2079_ay2526s2_grp08.protocol.Incoming
 
 /**
  * Represents the robot's current state on the arena.
@@ -21,13 +22,6 @@ data class RobotState(
 
     val robotDirection: RobotDirection
         get() = RobotDirection.fromDegrees(directionDeg)
-
-    fun occupies(cellX: Int, cellY: Int): Boolean {
-        val halfW = robotX / 2
-        val halfH = robotY / 2
-        return cellX in (x - halfW)..(x + halfW) &&
-               cellY in (y - halfH)..(y + halfH)
-    }
 }
 
 enum class RobotDirection {
@@ -90,69 +84,11 @@ data class ArenaState(
         return cells[y * width + x]
     }
 
-    fun isObstacle(x: Int, y: Int): Boolean = getCell(x, y).isObstacle
-    fun getImageId(x: Int, y: Int): String? = getCell(x, y).imageId
     fun withCell(x: Int, y: Int, cell: Cell): ArenaState {
         if (x !in 0 until width || y !in 0 until height) return this
         val mutable = cells.toMutableList()
         mutable[y * width + x] = cell
         return copy(cells = mutable)
-    }
-
-    fun setObstacle(
-        x: Int,
-        y: Int,
-        present: Boolean,
-        obstacleId: Int? = null,
-        protocolId: String? = null
-    ): ArenaState {
-        val current = getCell(x, y)
-        return withCell(
-            x, y,
-            current.copy(
-                isObstacle = present,
-                obstacleId = if (present) obstacleId else null,
-                protocolId = if (present) protocolId else null
-            )
-        )
-    }
-
-
-    fun setTarget(x: Int, y: Int, present: Boolean, direction: RobotDirection? = null): ArenaState {
-        val current = getCell(x, y)
-        return withCell(
-            x, y,
-            current.copy(
-                isTarget = present,
-                targetDirection = if (present) direction else null
-            )
-        )
-    }
-
-
-    fun setImageId(x: Int, y: Int, imageId: String?): ArenaState {
-        val current = getCell(x, y)
-        return withCell(x, y, current.copy(imageId = imageId))
-    }
-
-    fun getObstacles(): List<Triple<Int, Int, Int?>> {
-        return cells.mapIndexedNotNull { idx, cell ->
-            if (cell.isObstacle) {
-                val x = idx % width
-                val y = idx / width
-                Triple(x, y, cell.obstacleId)
-            } else null
-        }
-    }
-
-    fun getTargets(): List<Triple<Int, Int, RobotDirection?>> {
-        return cells.mapIndexedNotNull { idx, cell ->
-            if (cell.isTarget) {
-                val x = idx % width
-                val y = idx / width
-                Triple(x, y, cell.targetDirection)
-            } else null
-        }
     }
 
     companion object {
@@ -188,34 +124,20 @@ data class ImageDetection(
     val label: String? = null
 )
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Path Execution Model
-// ─────────────────────────────────────────────────────────────────────────────
-
-data class RobotPose(
-    val x: Int,
-    val y: Int,
-    val directionDeg: Int
-)
-
 /**
  * Represents a path execution state for algorithm playback.
- *
- * @param poses Sequence of robot poses to execute
- * @param currentIndex Current position in the path (-1 if not started)
- * @param isPlaying Whether path is currently playing
- * @param speed Playback speed multiplier (1.0 = normal)
  */
+enum class ExecutionMode {
+    NONE,
+    PLANNED,
+    LIVE_TELEMETRY,
+}
+
 data class PathExecutionState(
-    val poses: List<RobotPose> = emptyList(),
+    val poses: List<Incoming.RobotPosition> = emptyList(),
     val currentIndex: Int = -1,
     val isPlaying: Boolean = false,
-) {
-    val isActive: Boolean get() = poses.isNotEmpty()
-    val isComplete: Boolean get() = currentIndex >= poses.lastIndex
-    val currentPose: RobotPose? get() = poses.getOrNull(currentIndex)
-    val progress: Float get() = if (poses.isEmpty()) 0f else (currentIndex + 1).toFloat() / poses.size
-}
+)
 
 data class LogEntry(
     val kind: Kind,
@@ -224,10 +146,6 @@ data class LogEntry(
 ) {
     enum class Kind { INFO, IN, OUT, ERROR }
 }
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Obstacle Model (Separate list for easy UI access)
-// ─────────────────────────────────────────────────────────────────────────────
 
 /**
  * Represents an obstacle block in the arena.
@@ -239,19 +157,9 @@ data class LogEntry(
  * @param facing Direction the target face is pointing (N/E/S/W), null if not set
  * @param targetId Detected image ID after TARGET message, null if not detected yet
  */
-//data class ObstacleState(
-//    val id: Int,
-//    val x: Int,
-//    val y: Int,
-//    val facing: RobotDirection? = null,
-//    val targetId: String? = null
-//) {
-//    /** Obstacle ID as string (e.g., "B1", "B2") */
-//    val obstacleId: String get() = "B$id"
-//}
 
 data class PendingObstacle(
-    val obstacleId: Int?,
+    val obstacleId: Int,
     val width: Int = 2,
     val height: Int = 2,
     val facing: RobotDirection? = RobotDirection.NORTH
@@ -259,7 +167,7 @@ data class PendingObstacle(
 
 data class PlacedObstacle(
     val protocolId: String,
-    val obstacleId: Int?,
+    val obstacleId: Int,
     val bottomLeftX: Int,
     val bottomLeftY: Int,
     val width: Int,
@@ -310,14 +218,17 @@ data class AppState(
     val placedObstacles: List<PlacedObstacle> = emptyList(),
 
     val usedTargetObstacleIds: Set<Int> = emptySet(),
-    val nextBlockageSeq: Int = 1,
 
     // Image detections
     val detections: List<ImageDetection> = emptyList(),
     val lastDetection: ImageDetection? = null,
+    val obstacleImages: Map<String, ByteArray> = emptyMap(),
+    val selectedObstacleId: String? = null,
+    val lastImageBytes: ByteArray? = null,
 
     // Path execution
     val pathExecution: PathExecutionState = PathExecutionState(),
+    val executionMode: ExecutionMode = ExecutionMode.NONE,
 
     // Message log
     val log: List<LogEntry> = emptyList()

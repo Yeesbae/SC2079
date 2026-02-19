@@ -1,0 +1,76 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:orientation="vertical"
+    android:padding="16dp"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal">
+
+        <TextView
+            android:id="@+id/tabConfig"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="Config"
+            android:gravity="center"
+            android:padding="12dp"
+            android:textStyle="bold"/>
+
+        <TextView
+            android:id="@+id/tabImage"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="Image"
+            android:gravity="center"
+            android:padding="12dp"
+            android:textStyle="bold"/>
+    </LinearLayout>
+
+    <LinearLayout
+        android:id="@+id/panelConfig"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:layout_marginTop="12dp">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Facing"
+            android:textStyle="bold" />
+
+        <Spinner
+            android:id="@+id/spFacing"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content" />
+    </LinearLayout>
+
+    <FrameLayout
+        android:id="@+id/panelImage"
+        android:layout_width="match_parent"
+        android:layout_height="300dp"
+        android:layout_marginTop="12dp"
+        android:visibility="gone">
+
+        <ImageView
+            android:id="@+id/ivObstacleImage"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:adjustViewBounds="true"
+            android:scaleType="fitCenter" />
+
+        <TextView
+            android:id="@+id/tvNoImage"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:text="No image detected yet"
+            android:gravity="center"
+            android:visibility="gone"/>
+    </FrameLayout>
+
+</LinearLayout>

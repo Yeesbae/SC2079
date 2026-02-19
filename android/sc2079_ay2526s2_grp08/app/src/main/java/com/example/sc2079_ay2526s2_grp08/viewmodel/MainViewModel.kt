@@ -1,15 +1,19 @@
 package com.example.sc2079_ay2526s2_grp08.viewmodel
 
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
 import com.example.sc2079_ay2526s2_grp08.bluetooth.BluetoothManager
 import com.example.sc2079_ay2526s2_grp08.bluetooth.BtDeviceMapper
 import com.example.sc2079_ay2526s2_grp08.domain.*
 import com.example.sc2079_ay2526s2_grp08.domain.util.DirectionUtil
 import com.example.sc2079_ay2526s2_grp08.protocol.*
 import com.example.sc2079_ay2526s2_grp08.viewmodel.reducers.*
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
 import kotlin.io.path.Path
 
 /**
@@ -34,17 +38,32 @@ class MainViewModel(
     private val bt: BluetoothManager
 ) : ViewModel() {
 
+    private var playbackJob: Job? = null
     private val _state = MutableStateFlow(AppState())
     private var autoListenOnDisconnect: Boolean = true
+    private var collectingPath = false
+    private val collectedPoses = mutableListOf<Incoming.RobotPosition>()
+    private var expectedPathCount: Int? = null
     val state: StateFlow<AppState> = _state
 
     init {
         bt.onEvent = { ev -> handleBluetoothEvent(ev) }
+        ensureInitialState()
     }
 
-    fun setAutoListenOnDisconnect(enabled: Boolean) {
-        autoListenOnDisconnect = enabled
+    private fun ensureInitialState() {
+        _state.update { s ->
+            var next = s
+            if (next.arena == null) {
+                next = next.copy(arena = ArenaState.empty(ArenaState.DEFAULT_WIDTH, ArenaState.DEFAULT_HEIGHT))
+            }
+            if (next.robot == null) {
+                next = next.copy(robot = RobotState(x = 0, y = 0, directionDeg = 0))
+            }
+            next
+        }
     }
+
 
     /** Start listening for incoming connections (server mode) */
     fun startDefaultListening() {
@@ -75,11 +94,6 @@ class MainViewModel(
         _state.update { s -> DiscoveryReducer.setPairedDevices(s, paired) }
     }
 
-    /** Get list of paired Bluetooth devices */
-    fun getPairedDevices(): List<android.bluetooth.BluetoothDevice> {
-        return bt.getPairedDevices()
-    }
-
     fun startScan() {
         refreshPairedDevices()
         _state.update { s -> DiscoveryReducer.startScan(s) }
@@ -90,11 +104,6 @@ class MainViewModel(
     fun stopScan() {
         bt.stopDiscovery()
         _state.update { s -> DiscoveryReducer.stopScan(s) }
-    }
-
-    fun clearScanResults() {
-        bt.clearDiscoveredDevices()
-        _state.update { s -> DiscoveryReducer.clearScanResults(s) }
     }
 
     /** Return an Intent so UI can launch system dialog */
@@ -150,8 +159,30 @@ class MainViewModel(
         send(Outgoing.TurnDegrees(degrees))
     }
 
-    fun pickObstacleToConfigure(obstacleId: Int?) {
-        // obstacleId 1..8 or null for blockage
+    fun placeObstacleDirect(obstacleId: Int, bottomLeftX: Int, bottomLeftY: Int, width: Int, height: Int, facing: RobotDirection) {
+        val arena = _state.value.arena
+        val maxW = arena?.width ?: ArenaConfig.GRID_SIZE
+        val maxH = arena?.height ?: ArenaConfig.GRID_SIZE
+
+        if (bottomLeftX < 0 || bottomLeftY < 0 ||
+            bottomLeftX + width > maxW || bottomLeftY + height > maxH
+        ) return
+
+        val newObstacle = PlacedObstacle(protocolId = "B$obstacleId", obstacleId = obstacleId, bottomLeftX = bottomLeftX, bottomLeftY = bottomLeftY, width = width, height = height, facing = facing)
+        _state.update { s ->
+            val updated = s.placedObstacles.filterNot { it.obstacleId == obstacleId } + newObstacle
+            s.copy(placedObstacles = updated, pendingObstacle = null, pendingPreview = null)
+        }
+
+        sendObstacleRect(newObstacle)
+    }
+
+    fun selectObstacle(protocolId: String){
+        _state.update { s -> s.copy(selectedObstacleId = protocolId) }
+    }
+
+    fun pickObstacleToConfigure(obstacleId: Int) {
+        // obstacleId 1..8
         _state.update { PlacementReducer.setPending(it, PendingObstacle(obstacleId = obstacleId)) }
     }
 
@@ -185,7 +216,7 @@ class MainViewModel(
 
         _state.update { s ->
             val next = PlacementReducer.commitPlaced(s, placed)
-            if (p.obstacleId == null) next.copy(nextBlockageSeq = s.nextBlockageSeq + 1) else next
+            next
         }
         sendObstacleRect(placed)
     }
@@ -250,10 +281,21 @@ class MainViewModel(
         send(Outgoing.TaggedRobotRect(blX, blY, w, h, r.robotDirection))
     }
 
-    //fun sendRequestSync() = send(Outgoing.RequestSync)
-
-    fun sendStartExploration() = send(Outgoing.StartExploration)
-    fun sendStartFastestPath() = send(Outgoing.StartFastestPath)
+    fun sendStartExploration() {
+        send(Outgoing.StartExploration)
+        sendRobotRect()
+        val s = _state.value
+        s.placedObstacles
+            .sortedBy { it.protocolId }
+            .forEach { placed ->
+                sendObstacleRect(placed)
+            }
+        _state.update { it.copy(executionMode = ExecutionMode.PLANNED) }
+    }
+    fun sendStartFastestPath() {
+        send(Outgoing.StartFastestPath)
+        _state.update { it.copy(executionMode = ExecutionMode.LIVE_TELEMETRY) }
+    }
     fun sendStop() = send(Outgoing.StopRobot)
 
     /** Stored configurable button commands */
@@ -292,7 +334,6 @@ class MainViewModel(
                 pendingPreview = null,
                 placedObstacles = emptyList(),
                 usedTargetObstacleIds = emptySet(),
-                nextBlockageSeq = 1
             )
         }
     }
@@ -312,8 +353,7 @@ class MainViewModel(
                 pendingObstacle = null,
                 pendingPreview = null,
                 dragPreview = null,
-                usedTargetObstacleIds = emptySet(),
-                nextBlockageSeq = 1
+                usedTargetObstacleIds = emptySet()
             ).withArenaDerivedFromPlacedObstacles()
         }
         send(Outgoing.SetRobotPosition(0, 0, RobotDirection.NORTH))
@@ -324,6 +364,42 @@ class MainViewModel(
     fun setLocalRobotPosition(x: Int, y: Int, direction: RobotDirection) {
         _state.update { s -> RobotReducer.setRobotPosition(s, x, y, DirectionUtil.toDegrees(direction)) }
     }
+
+    private fun startPlannedPlayback(poses: List<Incoming.RobotPosition>) {
+        playbackJob?.cancel()
+
+        _state.update {
+            it.copy(
+                executionMode = ExecutionMode.PLANNED,
+                pathExecution = PathExecutionState(
+                    poses = poses,
+                    currentIndex = -1,
+                    isPlaying = true
+                )
+            )
+        }
+
+        playbackJob = viewModelScope.launch {
+            poses.forEachIndexed { index, pose ->
+                delay(300)
+
+                handleRobotPosition(pose)
+                _state.update { s ->
+                    s.copy(
+                        pathExecution = s.pathExecution.copy(currentIndex = index)
+                    )
+                }
+            }
+
+            _state.update {
+                it.copy(
+                    executionMode = ExecutionMode.NONE,
+                    pathExecution = it.pathExecution.copy(isPlaying = false)
+                )
+            }
+        }
+    }
+
 
     /** Clear all detections */
     fun clearDetections() {
@@ -372,6 +448,21 @@ class MainViewModel(
                 val d = BtDeviceMapper.toBtDevice(ev.device)
                 _state.update { s -> DiscoveryReducer.onDeviceFound(s, d) }
             }
+
+            is BluetoothManager.Event.ImageReceived -> {
+                log(LogEntry.Kind.INFO, "IMG: ${ev.obstacleId} -> ${ev.targetId} face=${ev.face ?: "-"} bytes=${ev.bytes.size}")
+
+                _state.update { s ->
+                    val faceDir = ev.face?.let { DirectionUtil.fromProtocolToken(it) }
+                    val s2 = PlacementReducer.onTargetDetected(s, ev.obstacleId, ev.targetId, faceDir)
+                    s2.copy(
+                        obstacleImages = s2.obstacleImages + (ev.obstacleId to ev.bytes),
+                        lastImageBytes = ev.bytes,
+                        selectedObstacleId = ev.obstacleId
+                    )
+                }
+            }
+
 
             is BluetoothManager.Event.DiscoveryFinished -> {
                 _state.update { s -> ConnectionReducer.onDiscoveryFinished(s) }
@@ -443,9 +534,18 @@ class MainViewModel(
             is Incoming.ArenaResize -> handleArenaResize(msg)
 
             // Path execution
+            is Incoming.PathBegin -> {
+                collectingPath = true
+                collectedPoses.clear()
+                expectedPathCount = msg.count
+            }
             is Incoming.PathSequence -> handlePathSequence(msg)
             is Incoming.PathStep -> handlePathStep(msg)
             is Incoming.PathComplete -> handlePathComplete()
+            is Incoming.PathEnd -> {
+                collectingPath = false
+                startPlannedPlayback(collectedPoses.toList())
+            }
             is Incoming.PathAbort -> handlePathAbort()
 
             // Sync request
@@ -531,11 +631,7 @@ class MainViewModel(
     }
 
     private fun buildProtocolIdForPending(state: AppState, pending: PendingObstacle): String {
-        return if (pending.obstacleId != null) {
-            "B${pending.obstacleId}"
-        } else {
-            "X${state.nextBlockageSeq}"
-        }
+        return "B${pending.obstacleId}"
     }
 
     private fun sendObstacleRect(placed: PlacedObstacle) {

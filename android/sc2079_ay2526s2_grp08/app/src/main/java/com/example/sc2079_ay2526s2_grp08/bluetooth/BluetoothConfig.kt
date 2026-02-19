@@ -5,7 +5,7 @@ import java.util.UUID
 object BluetoothConfig {
     val SPP_UUID: UUID = UUID.fromString("00001101-0000-1000-8000-00805F9B34FB")
     const val SERVICE_NAME: String = "MDP"
-    const val LINE_ENDING: String = ""
+    const val LINE_ENDING: String = "\n"
 
     const val ECHO_WINDOW: Int = 32
     const val READ_BUF_SIZE: Int = 256

@@ -28,10 +28,10 @@ object ProtocolEncoder {
     var cmdRequestArena: String = "SEND_ARENA"
 
     /** Command string for start exploration */
-    var cmdStartExploration: String = "START_EXPLORE"
+    var cmdStartExploration: String = "S,E"
 
     /** Command string for start fastest path */
-    var cmdStartFastestPath: String = "START_FASTEST"
+    var cmdStartFastestPath: String = "S,F"
 
     /** Command string for stop */
     var cmdStop: String = "STOP"
@@ -49,16 +49,9 @@ object ProtocolEncoder {
 
         // Format: "TAG,B1,bl=(x,y),w=2,h=2,img=11,face=N"
         is Outgoing.TaggedObstacleRect -> {
-            val parts = mutableListOf(
-                "TAG",
-                msg.obstacleId,
-                "bl=(${msg.bottomLeftX},${msg.bottomLeftY})",
-                "w=${msg.width}",
-                "h=${msg.height}"
-            )
-            msg.imageId?.takeIf { it.isNotBlank() }?.let { parts.add("img=$it") }
-            msg.facing?.let { parts.add("face=${DirectionUtil.toProtocolChar(it)}") }
-            parts.joinToString(",")
+            val face = msg.facing?.let { DirectionUtil.toProtocolChar(it) } ?: ""
+            val img = msg.imageId ?: ""
+            "O,${msg.obstacleId},${msg.bottomLeftX},${msg.bottomLeftY},${msg.width},${msg.height},$face,$img"
         }
 
         // Obstacle placement (C.6): "ADD,B1,(10,6)"
@@ -75,8 +68,9 @@ object ProtocolEncoder {
 
         is Outgoing.TaggedRobotRect -> {
             val face = DirectionUtil.toProtocolChar(msg.facing)
-            "ROBOT_TAG,(${msg.bottomLeftX},${msg.bottomLeftY}),${msg.width},${msg.height},$face"
+            "R,${msg.bottomLeftX},${msg.bottomLeftY},${msg.width},${msg.height},$face"
         }
+
 
         // Arena request
         is Outgoing.RequestSync -> cmdRequestArena
