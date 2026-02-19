@@ -5,9 +5,10 @@
 ```
 S,E\n
 ```
-Immediately signals RPI to:
-- Prepare to receive configuration
-- Enter exploration mode
+Meaning:
+- RPi enters "planned exploration config" mode
+- RPi should prepare to receive the arena configuration next (R + O...)
+- RPi should NOT start moving yet until it has received configuration and computed the planned route
 
 2. Robot Rectangle
 ```
@@ -28,6 +29,10 @@ Example:
 
 - O,B1,2,3,2,2,N
 - O,B2,6,5,2,2,E
+
+Notes:
+- All messages are newline-delimited (\n).
+- <face> is one of: N, E, S, W
 
 ### B) Start Fastest Path
 ```
@@ -67,6 +72,19 @@ Example:
 - M,TargetFound
 - M,Completed
 
+### D) Planned path sequence
+RPi returns the full planned route as a stream of pose lines, framed by PATH_BEGIN / PATH_END:
+```
+PATH_BEGIN,<count>
+P,<x>,<y>,<face>
+P,<x>,<y>,<face>
+...
+PATH_END
+```
+Where:
+- count is the number of P lines that follow (optional for validation).
+- P lines represent the robot pose sequence (grid coordinates + facing).
+
 ## Message Prefix Summary
 |   Prefix  |   Meaning |
 |---|---|
@@ -76,4 +94,5 @@ Example:
 |   P   |   Robot position update   |
 |   T	|   Target detection    |
 |   M	|   Status message  |
+| PATH_BEGIN / PATH_END | Planned path framing |
 |   f/r/tl/tr	|   Manual movement |
