@@ -66,21 +66,26 @@ def bluetooth_process(
 def task_process(
     task_num: int,
     to_bt_queue: Queue,        # Send image rec results to Bluetooth
-    from_algo_queue: Queue,    # Receive path from Algorithm (future use)
+    from_algo_queue: Queue,    # Receive path from Algorithm
     stop_event: Event,
-    config: Config
+    config: Config,
+    mode: str = "hardcoded"    # "hardcoded" or "algorithm"
 ):
     """
     Task process - handles Image Rec PC communication (stream + results)
+    
+    Args:
+        mode: "hardcoded" - use IMAGE_COMMANDS dict for movements
+              "algorithm" - wait for path commands from Algorithm process
     """
     # Import here for multiprocessing spawn compatibility
     from tasks.task1_rpi import Task1RPI
     from tasks.task2_rpi import Task2RPI
     
-    print(f"[Task Process] Starting Task {task_num}...")
+    print(f"[Task Process] Starting Task {task_num} in {mode} mode...")
     
     if task_num == 1:
-        task = Task1RPI(config)
+        task = Task1RPI(config, mode=mode)
     else:
         task = Task2RPI(config)
     
@@ -94,11 +99,22 @@ def task_process(
                 to_bt_queue.put(f"IMG:{last_img}")
                 task.last_image = None  # Clear after forwarding
             
-            # Check for path commands from Algorithm (future use)
+            # Check for path commands from Algorithm
             if not from_algo_queue.empty():
                 path_cmd = from_algo_queue.get_nowait()
                 print(f"[Task Process] Received path: {path_cmd}")
-                # TODO: Handle path commands
+                
+                # Execute path if in algorithm mode
+                if mode == "algorithm" and hasattr(task, 'execute_path'):
+                    if isinstance(path_cmd, list):
+                        task.execute_path(path_cmd)
+                    elif isinstance(path_cmd, str):
+                        import json
+                        try:
+                            path = json.loads(path_cmd)
+                            task.execute_path(path)
+                        except json.JSONDecodeError:
+                            print(f"[Task Process] Invalid path format: {path_cmd}")
             
             stop_event.wait(timeout=0.1)
             
@@ -167,9 +183,18 @@ def algorithm_process(
 # Main Process Manager
 # =============================================================================
 class MultiProcessManager:
-    def __init__(self, config: Config, task_num: int):
+    def __init__(self, config: Config, task_num: int, mode: str = "hardcoded"):
+        """
+        Initialize process manager
+        
+        Args:
+            config: Configuration object
+            task_num: Task number (1 or 2)
+            mode: "hardcoded" or "algorithm"
+        """
         self.config = config
         self.task_num = task_num
+        self.mode = mode
         self.processes = {}
         self.queues = {}
         self.stop_event = mp.Event()
@@ -204,7 +229,8 @@ class MultiProcessManager:
                 self.queues['task_to_bt'],
                 self.queues['algo_to_task'],
                 self.stop_event,
-                self.config
+                self.config,
+                self.mode  # Pass mode to task process
             ),
             name='TaskProcess'
         )
@@ -255,7 +281,8 @@ class MultiProcessManager:
                         self.queues['task_to_bt'],
                         self.queues['algo_to_task'],
                         self.stop_event,
-                        self.config
+                        self.config,
+                        self.mode  # Pass mode to task process
                     ),
                     name='TaskProcess'
                 )
@@ -342,11 +369,29 @@ def select_task() -> int:
             print("Please enter a valid number.")
 
 
+def select_mode() -> str:
+    """Prompt user to select movement mode"""
+    print("\nMovement mode:")
+    print("  1. hardcoded - Use IMAGE_COMMANDS mapping (arrows trigger turns)")
+    print("  2. algorithm - Wait for path commands from Algorithm")
+    
+    while True:
+        mode_str = input("Enter mode (1=hardcoded / 2=algorithm) >> ").strip()
+        if mode_str == "1" or mode_str.lower() == "hardcoded":
+            return "hardcoded"
+        elif mode_str == "2" or mode_str.lower() == "algorithm":
+            return "algorithm"
+        print("Please enter 1 or 2.")
+
+
 if __name__ == "__main__":
     mp.set_start_method('spawn', force=True)
     
     task_num = select_task()
     config = get_config()
+    mode = select_mode()
     
-    manager = MultiProcessManager(config, task_num)
+    print(f"\nStarting Task {task_num} in {mode} mode...")
+    
+    manager = MultiProcessManager(config, task_num, mode)
     manager.run()

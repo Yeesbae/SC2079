@@ -31,9 +31,13 @@ dist/
 **/runs/
 *.weights
 *.onnx
+*.cache
 
 # STM32/Eclipse
 .metadata/
 .settings/
 Debug/
 Release/
+
+# Specific files to ignore
+**/raspberry/

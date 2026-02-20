@@ -15,12 +15,12 @@ class BluetoothHandler:
     # Standard UUID for Serial Port Profile (SPP)
     UUID = "00001101-0000-1000-8000-00805F9B34FB"
     
-    def __init__(self, port: int = 1):
+    def __init__(self, port: int = 2):
         """
         Initialize Bluetooth handler
         
         Args:
-            port: RFCOMM channel (default 1)
+            port: RFCOMM channel (default 2, some devices need 1)
         """
         self.port = port
         self.server_socket = None
@@ -39,7 +39,12 @@ class BluetoothHandler:
             # Import bluetooth here to avoid issues if not on RPi
             import bluetooth
             
+            # Clean up any existing sockets first
+            self.disconnect()
+            
             self.server_socket = bluetooth.BluetoothSocket(bluetooth.RFCOMM)
+            # Allow socket reuse for faster reconnection
+            self.server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             self.server_socket.bind(("", self.port))
             self.server_socket.listen(1)
             
@@ -68,15 +73,21 @@ class BluetoothHandler:
             return False
     
     def disconnect(self):
-        """Close Bluetooth connection"""
+        """Close Bluetooth connection and clean up for reconnection"""
         try:
+            self.connected = False
             if self.client_socket:
-                self.client_socket.close()
+                try:
+                    self.client_socket.close()
+                except:
+                    pass
                 self.client_socket = None
             if self.server_socket:
-                self.server_socket.close()
+                try:
+                    self.server_socket.close()
+                except:
+                    pass
                 self.server_socket = None
-            self.connected = False
             self.client_address = None
             print("[Bluetooth] Disconnected")
         except Exception as e:
