@@ -48,7 +48,7 @@ class MazeVisualizer:
     # -------------------------------------------------
     # Frame
     # -------------------------------------------------
-    def draw_frame(self, robot_state, obstacles, path, upto_idx):
+    def draw_frame(self, robot_state, obstacles, path, upto_idx, override_angle=None):
         self.screen.fill(self.COLOR_BG)
         self._draw_grid()
 
@@ -59,10 +59,10 @@ class MazeVisualizer:
                 self.screen,
                 self.COLOR_OBS,
                 (ox, oy,
-                 self.cell_size * OBSTACLE_SIZE_CELLS,
-                 self.cell_size * OBSTACLE_SIZE_CELLS)
+                self.cell_size * OBSTACLE_SIZE_CELLS,
+                self.cell_size * OBSTACLE_SIZE_CELLS)
             )
-            
+
             angle = self._dir_to_angle(obs.direction)
             if angle is not None:
                 self._draw_arrow(
@@ -76,21 +76,20 @@ class MazeVisualizer:
         # Draw path
         self._draw_path(path[:upto_idx + 1])
 
-        # Draw robot
-        rx, ry = self._to_px(robot_state.x, robot_state.y)
-        rect = pygame.Rect(
-            0, 0,
-            self.cell_size * ROBOT_SIZE_CELLS,
-            self.cell_size * ROBOT_SIZE_CELLS
-        )
-        rect.center = (rx, ry)
-        pygame.draw.rect(self.screen, self.COLOR_ROBOT, rect, 2)
+        # Decide robot angle
+        if override_angle is not None:
+            angle = override_angle
+        else:
+            angle = self._dir_to_angle(robot_state.direction)
 
-        # Robot arrow
+        # Draw robot body (rotated)
+        self._draw_robot(robot_state.x, robot_state.y, angle)
+
+        # Draw arrow aligned with same angle
         self._draw_arrow(
             robot_state.x,
             robot_state.y,
-            self._dir_to_angle(robot_state.direction),
+            angle,
             self.COLOR_ROBOT,
             0.7
         )
@@ -105,6 +104,28 @@ class MazeVisualizer:
             pygame.draw.line(self.screen, self.COLOR_GRID, (x, 0), (x, self.height))
         for y in range(0, self.height, self.cell_size):
             pygame.draw.line(self.screen, self.COLOR_GRID, (0, y), (self.width, y))
+
+    def _draw_robot(self, x, y, angle):
+        size = self.cell_size * ROBOT_SIZE_CELLS
+
+        # Create surface for robot
+        surf = pygame.Surface((size, size), pygame.SRCALPHA)
+
+        # Draw rectangle centered in surface
+        pygame.draw.rect(
+            surf,
+            self.COLOR_ROBOT,
+            (0, 0, size, size),
+            2
+        )
+
+        # Rotate surface
+        rotated = pygame.transform.rotate(surf, math.degrees(angle))
+
+        # Get new rect centered at (x,y)
+        rect = rotated.get_rect(center=self._to_px(x, y))
+
+        self.screen.blit(rotated, rect)
 
     # -------------------------------------------------
     # Path drawing (Bezier curves)
@@ -181,24 +202,27 @@ class MazeVisualizer:
     # Arrow
     # -------------------------------------------------
     def _draw_arrow(self, x, y, angle, color, scale):
+        """
+        Draw a triangle pointing in the given angle.
+        The triangle is scaled relative to cell size (approx 2x2 cells if scale=1.0).
+        """
         cx, cy = self._to_px(x, y)
-        size = self.cell_size * scale
-        head = size * 0.4
+        size = self.cell_size * 2 * scale  # triangle roughly 2x2 cells
+        half_size = size / 2
 
-        tip = (cx + size * math.cos(angle), cy - size * math.sin(angle))
-        base = (cx - size * math.cos(angle), cy + size * math.sin(angle))
+        # Tip of the triangle
+        tip_x = cx + half_size * math.cos(angle)
+        tip_y = cy - half_size * math.sin(angle)
 
-        left = (
-            tip[0] - head * math.cos(angle - math.pi / 6),
-            tip[1] + head * math.sin(angle - math.pi / 6)
-        )
-        right = (
-            tip[0] - head * math.cos(angle + math.pi / 6),
-            tip[1] + head * math.sin(angle + math.pi / 6)
-        )
+        # Base points (triangle base perpendicular to facing direction)
+        left_x = cx + half_size * math.cos(angle + 2.5 * math.pi / 3)
+        left_y = cy - half_size * math.sin(angle + 2.5 * math.pi / 3)
 
-        pygame.draw.line(self.screen, color, base, tip, 3)
-        pygame.draw.polygon(self.screen, color, [tip, left, right])
+        right_x = cx + half_size * math.cos(angle - 2.5 * math.pi / 3)
+        right_y = cy - half_size * math.sin(angle - 2.5 * math.pi / 3)
+
+        pygame.draw.polygon(self.screen, color, [(tip_x, tip_y), (left_x, left_y), (right_x, right_y)])
+
 
     def _bezier_position(self, p0, p1, t):
         x0, y0 = p0.x, p0.y
@@ -245,40 +269,57 @@ class MazeVisualizer:
     def animate_transition(self, p0, p1, obstacles, path, upto_idx, frames=10):
         clock = pygame.time.Clock()
 
-        # Straight move
+        # -------------------------
+        # Straight Move
+        # -------------------------
         if p0.direction == p1.direction:
             for i in range(1, frames + 1):
                 t = i / frames
                 x = p0.x + t * (p1.x - p0.x)
                 y = p0.y + t * (p1.y - p0.y)
 
-                # Temporary state object
                 temp_state = type(p0)(x, y, p0.direction)
 
-                self.draw_frame(temp_state, obstacles, path, upto_idx)
+                self.draw_frame(
+                    temp_state,
+                    obstacles,
+                    path,
+                    upto_idx
+                )
+
                 clock.tick(60)
 
-        # Turning move
+        # -------------------------
+        # Turning Move
+        # -------------------------
         else:
+            a0 = self._dir_to_angle(p0.direction)
+            a1 = self._dir_to_angle(p1.direction)
+
+            # Shortest rotation normalization
+            delta = a1 - a0
+            if delta > math.pi:
+                delta -= 2 * math.pi
+            elif delta < -math.pi:
+                delta += 2 * math.pi
+
             for i in range(1, frames + 1):
                 t = i / frames
 
-                # Position from Bezier
+                # Position along Bezier
                 x, y = self._bezier_position(p0, p1, t)
 
-                # Interpolate angle smoothly
-                a0 = self._dir_to_angle(p0.direction)
-                a1 = self._dir_to_angle(p1.direction)
-
-                # Shortest rotation interpolation
-                angle = a0 + t * (a1 - a0)
+                # Smooth interpolated angle
+                angle = a0 + t * delta
 
                 temp_state = type(p0)(x, y, p0.direction)
-                temp_state.direction = p0.direction  # not used for angle
-                self.draw_frame(temp_state, obstacles, path, upto_idx)
 
-                # Draw rotated arrow manually
-                self._draw_arrow(x, y, angle, self.COLOR_ROBOT, 0.7)
-                pygame.display.flip()
+                self.draw_frame(
+                    temp_state,
+                    obstacles,
+                    path,
+                    upto_idx,
+                    override_angle=angle
+                )
 
                 clock.tick(60)
