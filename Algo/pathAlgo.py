@@ -1,5 +1,6 @@
 import heapq
 import math
+import time
 from typing import List
 import numpy as np
 from Entities.Bot import Robot
@@ -113,41 +114,41 @@ class MazeSolver:
                 counter += 1
 
 
-    def perform_turn(self, turn_instruction: str, max_reverse_steps=10):
-        """
-        Compute a safe 90° turn (LEFT or RIGHT) as a full path.
-        If turn is blocked, reverse step by step until a turn is possible.
-        Returns: List[CellState] representing the maneuver
-        """
-        start_state = self.robot.get_start_state()
-        target_dir = self.get_target_direction(start_state.direction, turn_instruction)
+    # def perform_turn(self, turn_instruction: str, max_reverse_steps=10):
+    #     """
+    #     Compute a safe 90° turn (LEFT or RIGHT) as a full path.
+    #     If turn is blocked, reverse step by step until a turn is possible.
+    #     Returns: List[CellState] representing the maneuver
+    #     """
+    #     start_state = self.robot.get_start_state()
+    #     target_dir = self.get_target_direction(start_state.direction, turn_instruction)
 
-        path = []
-        states_to_try = [(start_state, 0)]  # tuple of (state, reverse_steps_done)
-        visited = set()
+    #     path = []
+    #     states_to_try = [(start_state, 0)]  # tuple of (state, reverse_steps_done)
+    #     visited = set()
 
-        while states_to_try:
-            state, reverse_steps = states_to_try.pop(0)
-            if (state.x, state.y, state.direction) in visited:
-                continue
-            visited.add((state.x, state.y, state.direction))
+    #     while states_to_try:
+    #         state, reverse_steps = states_to_try.pop(0)
+    #         if (state.x, state.y, state.direction) in visited:
+    #             continue
+    #         visited.add((state.x, state.y, state.direction))
 
-            # 1️⃣ Try turning in place
-            neighbors = self.get_neighbors(state.x, state.y, state.direction)
-            for nx, ny, new_dir, _ in neighbors:
-                if new_dir == target_dir:
-                    # Turn possible, return full path
-                    turn_path = path + [CellState(nx, ny, new_dir)]
-                    return turn_path
+    #         # 1️⃣ Try turning in place
+    #         neighbors = self.get_neighbors(state.x, state.y, state.direction)
+    #         for nx, ny, new_dir, _ in neighbors:
+    #             if new_dir == target_dir:
+    #                 # Turn possible, return full path
+    #                 turn_path = path + [CellState(nx, ny, new_dir)]
+    #                 return turn_path
 
-            # 2️⃣ If turn blocked, reverse one step if allowed
-            if reverse_steps < max_reverse_steps:
-                reversed_state = self.try_reverse_one_step(state)
-                if reversed_state:
-                    path.append(reversed_state)
-                    states_to_try.append((reversed_state, reverse_steps + 1))
+    #         # 2️⃣ If turn blocked, reverse one step if allowed
+    #         if reverse_steps < max_reverse_steps:
+    #             reversed_state = self.try_reverse_one_step(state)
+    #             if reversed_state:
+    #                 path.append(reversed_state)
+    #                 states_to_try.append((reversed_state, reverse_steps + 1))
 
-        raise RuntimeError("Could not find safe turn path after reversing.")
+    #     raise RuntimeError("Could not find safe turn path after reversing.")
 
 
     def get_target_direction(self, current_dir, instruction):
@@ -168,21 +169,21 @@ class MazeSolver:
             }[current_dir]
 
 
-    def try_reverse_one_step(self, state: CellState):
-        """
-        Reverse 1 grid step safely.
-        Returns new CellState or None if blocked.
-        """
+    # def try_reverse_one_step(self, state: CellState):
+    #     """
+    #     Reverse 1 grid step safely.
+    #     Returns new CellState or None if blocked.
+    #     """
 
-        for dx, dy, md in MOVE_DIRECTION:
-            if md == state.direction:
-                back_x = state.x - dx
-                back_y = state.y - dy
+    #     for dx, dy, md in MOVE_DIRECTION:
+    #         if md == state.direction:
+    #             back_x = state.x - dx
+    #             back_y = state.y - dy
 
-                if self.grid.reachable(back_x, back_y):
-                    return CellState(back_x, back_y, state.direction)
+    #             if self.grid.reachable(back_x, back_y):
+    #                 return CellState(back_x, back_y, state.direction)
 
-        return None
+    #     return None
 
 
     def reset_obstacles(self):
@@ -244,109 +245,30 @@ class MazeSolver:
         s.sort(key=lambda x: x.count('1'), reverse=True)
         return s
 
-    # def get_optimal_order_dp(self, retrying) -> List[CellState]:
-    #     distance = 1e9
-    #     optimal_path = []
-
-    #     #print(f"Inside get_optimal_order_dp: retrying = {retrying}")
-    #     # Get all possible positions that can view the obstacles
-    #     all_view_positions = self.grid.get_view_obstacle_positions(retrying)
-    #     #print(f"all_view_positions: {all_view_positions}")
-    #     #print(f"All view position: {all_view_positions}")
-
-    #     for op in self.get_visit_options(len(all_view_positions)):
-    #         # op is binary string of length len(all_view_positions) == len(obstacles)
-    #         # If index == 1 means the view_positions[index] is selected to visit, otherwise drop
-
-    #         # Calculate optimal_cost table
-
-    #         # Initialize `items` to be a list containing the robot's start state as the first item
-    #         items = [self.robot.get_start_state()]
-    #         # Initialize `cur_view_positions` to be an empty list
-    #         cur_view_positions = []
-            
-    #         # print(f"===================\nop = {op}")
-    #         # print("List of obstacle visited: \n")
-
-    #         # For each obstacle
-    #         for idx in range(len(all_view_positions)):
-    #             # If robot is visiting
-    #             if op[idx] == '1':
-    #                 # Add possible cells to `items`
-    #                 items = items + all_view_positions[idx]
-    #                 # Add possible cells to `cur_view_positions`
-    #                 cur_view_positions.append(all_view_positions[idx])
-    #                 #print("obstacle: {}\n".format(self.grid.obstacles[idx]))
-
-    #         # Generate the path cost for the items
-    #         self.path_cost_generator(items)
-    #         combination = []
-    #         self.generate_combination(cur_view_positions, 0, [], combination, [ITERATIONS])
-
-    #         for c in combination: # run the algo some times ->
-    #             visited_candidates = [0] # add the start state of the robot
-
-    #             cur_index = 1
-    #             fixed_cost = 0 # the cost applying for the position taking obstacle pictures
-    #             for index, view_position in enumerate(cur_view_positions):
-    #                 visited_candidates.append(cur_index + c[index])
-    #                 fixed_cost += view_position[c[index]].penalty
-    #                 cur_index += len(view_position)
-                
-    #             cost_np = np.zeros((len(visited_candidates), len(visited_candidates)))
-
-    #             for s in range(len(visited_candidates) - 1):
-    #                 for e in range(s + 1, len(visited_candidates)):
-    #                     u = items[visited_candidates[s]]
-    #                     v = items[visited_candidates[e]]
-    #                     if (u, v) in self.cost_table.keys():
-    #                         cost_np[s][e] = self.cost_table[(u, v)]
-    #                     else:
-    #                         cost_np[s][e] = 1e9
-    #                     cost_np[e][s] = cost_np[s][e]
-    #             cost_np[:, 0] = 0
-    #             _permutation, _distance = solve_tsp_dynamic_programming(cost_np)
-    #             # print(f"fixed_cost = {fixed_cost}")
-    #             # print(f"distance = {_distance}")
-    #             if _distance + fixed_cost >= distance:
-    #                 continue
-
-    #             optimal_path = [items[0]]
-    #             distance = _distance + fixed_cost
-
-    #             for i in range(len(_permutation) - 1):
-    #                 from_item = items[visited_candidates[_permutation[i]]]
-    #                 to_item = items[visited_candidates[_permutation[i + 1]]]
-
-    #                 cur_path = self.path_table[(from_item, to_item)]
-    #                 for j in range(1, len(cur_path)):
-    #                     optimal_path.append(CellState(cur_path[j][0], cur_path[j][1], cur_path[j][2]))
-
-    #                 optimal_path[-1].set_screenshot(to_item.screenshot_id)
-
-    #         if optimal_path:
-    #             # if found optimal path, return
-    #             break
-
-    #     return optimal_path, distance
-
     def get_optimal_order_dp(self, retrying):
+        timings = {}
+        start_total = time.perf_counter()
 
         start_state = self.robot.get_start_state()
 
         # 1️⃣ Get all view positions (6 per obstacle)
+        t0 = time.perf_counter()
         all_view_positions = self.grid.get_view_obstacle_positions(retrying)
+        timings["get_view_positions"] = time.perf_counter() - t0
         num_obstacles = len(all_view_positions)
 
         # 2️⃣ Flatten all states for one-time A* precomputation
+        t0 = time.perf_counter()
         all_states = [start_state]
         for views in all_view_positions:
             all_states.extend(views)
 
         # Precompute all A* paths once
         self.path_cost_generator(all_states)
+        timings["a_star_precomputation"] = time.perf_counter() - t0
 
         # 3️⃣ Build obstacle-level distance matrix
+        t0 = time.perf_counter()
         obstacle_cost = np.zeros((num_obstacles + 1, num_obstacles + 1))
 
         # index 0 = start
@@ -370,12 +292,16 @@ class MazeSolver:
 
                 obstacle_cost[i + 1][j + 1] = min_cost
                 obstacle_cost[j + 1][i + 1] = min_cost
+        timings["build_obstacle_cost_matrix"] = time.perf_counter() - t0
 
         # 4️⃣ Solve TSP on obstacles only
+        t0 = time.perf_counter()
         obstacle_cost[:, 0] = 0  # allow free return to start
         permutation, _ = solve_tsp_dynamic_programming(obstacle_cost)
+        timings["solve_tsp"] = time.perf_counter() - t0
 
         # Remove start index (0)
+        t0 = time.perf_counter()
         visit_order = [idx - 1 for idx in permutation if idx != 0]
 
         # 5️⃣ Greedy view selection along obstacle order
@@ -412,6 +338,13 @@ class MazeSolver:
 
             total_cost += best_cost
             current_state = best_view
+        timings["greedy_view_selection"] = time.perf_counter() - t0
+
+        timings["total"] = time.perf_counter() - start_total
+
+        print("Timing breakdown (seconds):")
+        for k, v in timings.items():
+            print(f"  {k}: {v:.4f}")
 
         return optimal_path, total_cost
 
@@ -458,7 +391,7 @@ class MazeSolver:
         start_x, start_y,
         end_x, end_y,
         start_dir,
-        radius=5,
+        radius=TURN_RADIUS,
         steps=20
     ):
         """
@@ -602,56 +535,56 @@ class MazeSolver:
         return neighbors
     
 
-    def get_path_to_parking(
-        self,
-        parking_x: int,
-        parking_y: int,
-        parking_direction: Direction = None
-    ) -> list[CellState]:
-        """
-        Compute the optimal path from current robot position to the parking lot.
+    # def get_path_to_parking(
+    #     self,
+    #     parking_x: int,
+    #     parking_y: int,
+    #     parking_direction: Direction = None
+    # ) -> list[CellState]:
+    #     """
+    #     Compute the optimal path from current robot position to the parking lot.
 
-        Args:
-            parking_x (int): target x-coordinate of parking spot
-            parking_y (int): target y-coordinate of parking spot
-            parking_direction (Direction, optional): desired facing at parking. 
-                                                    Defaults to None (any direction).
+    #     Args:
+    #         parking_x (int): target x-coordinate of parking spot
+    #         parking_y (int): target y-coordinate of parking spot
+    #         parking_direction (Direction, optional): desired facing at parking. 
+    #                                                 Defaults to None (any direction).
 
-        Returns:
-            List[CellState]: full path from current robot state to parking
-        """
-        start_state = self.robot.get_start_state()
+    #     Returns:
+    #         List[CellState]: full path from current robot state to parking
+    #     """
+    #     start_state = self.robot.get_start_state()
         
-        # Create parking CellState
-        if parking_direction is None:
-            # If direction not specified, allow any direction (try all 4)
-            candidate_directions = [Direction.NORTH, Direction.SOUTH, Direction.EAST, Direction.WEST]
-        else:
-            candidate_directions = [parking_direction]
+    #     # Create parking CellState
+    #     if parking_direction is None:
+    #         # If direction not specified, allow any direction (try all 4)
+    #         candidate_directions = [Direction.NORTH, Direction.SOUTH, Direction.EAST, Direction.WEST]
+    #     else:
+    #         candidate_directions = [parking_direction]
 
-        best_path = None
-        best_cost = float('inf')
+    #     best_path = None
+    #     best_cost = float('inf')
 
-        for dir_candidate in candidate_directions:
-            parking_state = CellState(parking_x, parking_y, dir_candidate)
+    #     for dir_candidate in candidate_directions:
+    #         parking_state = CellState(parking_x, parking_y, dir_candidate)
             
-            # Generate path cost table for this start→goal
-            self.path_cost_generator([start_state, parking_state])
+    #         # Generate path cost table for this start→goal
+    #         self.path_cost_generator([start_state, parking_state])
 
-            if (start_state, parking_state) not in self.cost_table:
-                continue
+    #         if (start_state, parking_state) not in self.cost_table:
+    #             continue
 
-            cost = self.cost_table[(start_state, parking_state)]
-            path = self.path_table[(start_state, parking_state)]
+    #         cost = self.cost_table[(start_state, parking_state)]
+    #         path = self.path_table[(start_state, parking_state)]
 
-            if cost < best_cost:
-                best_cost = cost
-                best_path = [CellState(x, y, d) for x, y, d in path]
+    #         if cost < best_cost:
+    #             best_cost = cost
+    #             best_path = [CellState(x, y, d) for x, y, d in path]
 
-        if best_path is None:
-            raise RuntimeError("No valid path to parking found!")
+    #     if best_path is None:
+    #         raise RuntimeError("No valid path to parking found!")
 
-        return best_path
+    #     return best_path
 
 
     def path_cost_generator(self, states: List[CellState]):
@@ -736,6 +669,7 @@ class MazeSolver:
         for i in range(len(states) - 1):
             for j in range(i + 1, len(states)):
                 astar_search(states[i], states[j])
+
 
 if __name__ == "__main__":
     pass
