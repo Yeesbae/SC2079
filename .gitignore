@@ -6,6 +6,7 @@ local.properties
 .DS_Store
 Thumbs.db
 *.log
+.vscode/
 
 # Python
 .venv/
@@ -28,7 +29,6 @@ dist/
 
 # YOLO training outputs and models
 **/runs/
-*.pt
 *.weights
 *.onnx
 
