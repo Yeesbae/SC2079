@@ -171,7 +171,7 @@ class MainViewModel(
         val newObstacle = PlacedObstacle(protocolId = "B$obstacleId", obstacleId = obstacleId, bottomLeftX = bottomLeftX, bottomLeftY = bottomLeftY, width = width, height = height, facing = facing)
         _state.update { s ->
             val updated = s.placedObstacles.filterNot { it.obstacleId == obstacleId } + newObstacle
-            s.copy(placedObstacles = updated, pendingObstacle = null, pendingPreview = null)
+            s.copy(placedObstacles = updated, pendingObstacle = null, pendingPreview = null, dragPreview = null).withArenaDerivedFromPlacedObstacles()
         }
 
         sendObstacleRect(newObstacle)

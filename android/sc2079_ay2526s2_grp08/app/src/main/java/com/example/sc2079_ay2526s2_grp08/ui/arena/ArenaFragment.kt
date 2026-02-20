@@ -153,7 +153,7 @@ class ArenaFragment : Fragment() {
             .setTitle("Obstacle $protocolId")
             .setView(dialogView)
             .setPositiveButton("Save") { _, _ ->
-                val facing = RobotDirection.valueOf(spFacing.selectedItem.toString())
+                val facing = DirectionUtil.fromProtocolToken(spFacing.selectedItem.toString())
                 viewModel.setPlacedFacing(protocolId, facing)
             }
             .setNegativeButton("Close", null)
@@ -183,7 +183,7 @@ class ArenaFragment : Fragment() {
                 val yText = etY.text.toString().trim()
                 val w = etWidth.text.toString().toIntOrNull() ?: 1
                 val h = etHeight.text.toString().toIntOrNull() ?: 1
-                val facing = RobotDirection.valueOf(spFacing.selectedItem.toString())
+                val facing = DirectionUtil.fromProtocolToken(spFacing.selectedItem.toString())
 
                 val hasX = xText.isNotEmpty()
                 val hasY = yText.isNotEmpty()
@@ -195,7 +195,7 @@ class ArenaFragment : Fragment() {
                         val x = xText.toIntOrNull()
                         val y = yText.toIntOrNull()
                         if(x == null || y == null) return@setPositiveButton
-                        viewModel.placeObstacleDirect(id, x, y, w, h, facing)
+                        viewModel.placeObstacleDirect(obstacleId, x, y, w, h, facing)
                     }
 
                     else -> {}
