@@ -7,6 +7,7 @@ import threading
 import time
 from pathlib import Path
 from queue import Queue, Empty
+from typing import Optional
 
 # Add project path
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -249,6 +250,26 @@ class Task1RPI:
     def turn_right(self, angle: int = 90):
         """Turn robot right"""
         self.stm32.turn_right(angle)
+    
+    def send_command(self, command: str) -> Optional[str]:
+        """
+        Send a direct command to STM32 (used for Bluetooth control)
+        
+        Args:
+            command: STM32 command string (e.g., "FW050", "TR090", "STOP")
+            
+        Returns:
+            Response from STM32 or None
+        """
+        if not self.stm32.connected:
+            print("[Task1] STM32 not connected")
+            return None
+        
+        print(f"[Task1] Sending command to STM32: {command}")
+        if self.stm32.send(command):
+            response = self.stm32.receive(timeout=3.0)
+            return response
+        return None
 
     def get_last_image(self) -> str:
         """Get last received image ID"""

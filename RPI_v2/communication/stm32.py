@@ -160,20 +160,14 @@ class STM32:
         # These mappings depend on your model's class names
         IMAGE_TO_COMMAND = {
             # Arrow signs
-            "38": "TR090",   # Right arrow → turn right 90°
-            "39": "TL090",   # Left arrow → turn left 90°
+            "38": "LS090",   # Right arrow → turn right 90°
+            "39": "RS090",   # Left arrow → turn left 90°
             
             # Number signs (example: stop at numbers)
-            "0": "STOP",
-            "1": "FW010",
-            "2": "FW020",
-            "3": "FW030",
-            "4": "FW040",
-            "5": "FW050",
+            "0": "STOP"
             
             # Add more mappings as needed for your model's classes
-            # "bullseye": "STOP",
-            # "circle": "TR090",
+            # "bullseye": "STOP"
         }
         # =============================================================
         

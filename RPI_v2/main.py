@@ -21,10 +21,14 @@ def bluetooth_process(
     """
     # Import here for multiprocessing spawn compatibility
     from communication.bluetooth import BluetoothHandler
+    import re
     
     print("[BT Process] Starting...")
     
     bt = BluetoothHandler()
+    
+    # STM32 command pattern: SF050, STOP, etc.
+    stm32_cmd_pattern = re.compile(r'^([A-Z]{2}\d{3}|STOP)$', re.IGNORECASE)
     
     while not stop_event.is_set():
         try:
@@ -35,12 +39,20 @@ def bluetooth_process(
                     time.sleep(2)  # Retry delay
                     continue
             
-            # Receive from Android (obstacle coordinates) - non-blocking
+            # Receive from Android (obstacle coordinates or STM32 commands) - non-blocking
             data = bt.receive_nonblocking(timeout=0.05)
             if data:
-                # Forward raw data to Algorithm process
-                to_algo_queue.put(data)
-                print(f"[BT Process] Received from Android: {data}")
+                data_upper = data.strip().upper()
+                
+                # Check if it's an STM32 command
+                if stm32_cmd_pattern.match(data_upper):
+                    # Send to Task process for STM32 execution
+                    to_task_queue.put(('STM32', data_upper))
+                    print(f"[BT Process] STM32 command from Android: {data_upper}")
+                else:
+                    # Forward to Algorithm process (obstacle coords, etc.)
+                    to_algo_queue.put(data)
+                    print(f"[BT Process] Data from Android → Algo: {data}")
             
             # Send image rec results to Android
             if not from_task_queue.empty():
@@ -67,6 +79,7 @@ def task_process(
     task_num: int,
     to_bt_queue: Queue,        # Send image rec results to Bluetooth
     from_algo_queue: Queue,    # Receive path from Algorithm
+    from_bt_queue: Queue,      # Receive STM32 commands from Bluetooth
     stop_event: Event,
     config: Config,
     mode: str = "hardcoded"    # "hardcoded" or "algorithm"
@@ -98,6 +111,17 @@ def task_process(
             if last_img:
                 to_bt_queue.put(f"IMG:{last_img}")
                 task.last_image = None  # Clear after forwarding
+            
+            # Check for STM32 commands from Bluetooth
+            if not from_bt_queue.empty():
+                bt_msg = from_bt_queue.get_nowait()
+                if isinstance(bt_msg, tuple) and bt_msg[0] == 'STM32':
+                    stm32_cmd = bt_msg[1]
+                    print(f"[Task Process] Executing STM32 command from BT: {stm32_cmd}")
+                    if hasattr(task, 'send_command'):
+                        response = task.send_command(stm32_cmd)
+                        if response:
+                            to_bt_queue.put(f"STM32:{response}")
             
             # Check for path commands from Algorithm
             if not from_algo_queue.empty():
@@ -228,6 +252,7 @@ class MultiProcessManager:
                 self.task_num,
                 self.queues['task_to_bt'],
                 self.queues['algo_to_task'],
+                self.queues['bt_to_task'],
                 self.stop_event,
                 self.config,
                 self.mode  # Pass mode to task process
@@ -280,6 +305,7 @@ class MultiProcessManager:
                         self.task_num,
                         self.queues['task_to_bt'],
                         self.queues['algo_to_task'],
+                        self.queues['bt_to_task'],
                         self.stop_event,
                         self.config,
                         self.mode  # Pass mode to task process
