@@ -11,7 +11,7 @@ from pathlib import Path
 # Add project path
 sys.path.insert(0, str(Path(__file__).parent))
 
-from RPI_v1.communication.algo_client import AlgoClient
+from RPI_v2.communication.algo_pc import AlgoPC
 
 
 def test_algo():
@@ -30,9 +30,14 @@ def test_algo():
     print("-"*80)
 
     try:
-        client = AlgoClient(host='192.168.88.3', port=6000)
-        print(f"[TEST] Connecting to Algo server at 192.168.88.3:6000...")
-        client.connect()
+        client = AlgoPC()
+        # Update host if needed
+        client.host = '192.168.88.3'  # Change to your Algorithm PC IP
+        client.port = 6000
+        
+        print(f"[TEST] Connecting to Algo server at {client.host}:{client.port}...")
+        if not client.connect():
+            raise Exception("Connection failed")
         print("✓ Connected successfully!\n")
 
     except Exception as e:
@@ -85,7 +90,22 @@ def test_algo():
     print("-"*80)
 
     try:
-        path = client.send_arena_data(test_data)
+        # Send arena data as JSON
+        client.send_json(test_data)
+        
+        # Receive path response
+        path_response = client.receive_json()
+        if not path_response:
+            raise Exception("No response from server")
+        
+        # Extract path from response (might be wrapped in a dict)
+        if isinstance(path_response, dict) and 'data' in path_response:
+            path = path_response['data'].get('path', [])
+        elif isinstance(path_response, list):
+            path = path_response
+        else:
+            raise Exception(f"Unexpected response format: {type(path_response)}")
+        
         print(f"✓ Received path with {len(path)} waypoints!\n")
 
     except Exception as e:
