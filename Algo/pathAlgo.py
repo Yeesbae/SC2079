@@ -7,7 +7,7 @@ from Entities.Bot import Robot
 from Entities.Cell import CellState
 from Entities.Obstacle import Obstacle
 from Entities.Grid import Grid
-from constants import Direction, MOVE_DIRECTION, TURN_FACTOR, ITERATIONS, TURN_RADIUS, SAFE_COST, SMALL_TURN
+from constants import Direction, MOVE_DIRECTION, TURN_FACTOR, ITERATIONS, TURN_RADIUS, SAFE_COST, SMALL_TURN, OBSTACLE_ROBOT_GUARD_DIM
 from python_tsp.exact import solve_tsp_dynamic_programming
 
 
@@ -32,6 +32,7 @@ class MazeSolver:
         self.path_table = dict()
         self.cost_table = dict()
         self.enabled_turn = int(enabled_turn)
+        self.safe_cost_map = self.build_safe_cost_map()
 
     def add_obstacle(self, x: int, y: int, direction: Direction, obstacle_id: int):
         """Add obstacle to MazeSolver object
@@ -385,6 +386,22 @@ class MazeSolver:
                 return SAFE_COST
 
         return 0
+
+
+    def build_safe_cost_map(self):
+        safe_cost_map = [[0 for _ in range(self.grid.size_x)] for _ in range(self.grid.size_y)]
+        for ob in self.grid.obstacles:
+            for (x, y) in [
+                (OBSTACLE_ROBOT_GUARD_DIM, OBSTACLE_ROBOT_GUARD_DIM),
+                (-OBSTACLE_ROBOT_GUARD_DIM, -OBSTACLE_ROBOT_GUARD_DIM),
+                (-OBSTACLE_ROBOT_GUARD_DIM, OBSTACLE_ROBOT_GUARD_DIM),
+                (OBSTACLE_ROBOT_GUARD_DIM, -OBSTACLE_ROBOT_GUARD_DIM),
+            ]:
+                if self.grid.is_valid_coord(ob.x + x, ob.y + y):
+                    safe_cost_map[ob.x + x][ob.y + y] = SAFE_COST
+        
+        return safe_cost_map
+
     
     def get_arc_points_from_endpoints(
         self,
@@ -486,11 +503,13 @@ class MazeSolver:
             if md == direction:
                 # Forward
                 if self.grid.reachable(x + dx, y + dy):
-                    safe_cost = self.get_safe_cost(x + dx, y + dy)
+                    # safe_cost = self.get_safe_cost(x + dx, y + dy)
+                    safe_cost = self.safe_cost_map[x + dx][y + dy]
                     neighbors.append((x + dx, y + dy, md, safe_cost))
                 # Backward
                 if self.grid.reachable(x - dx, y - dy):
-                    safe_cost = self.get_safe_cost(x - dx, y - dy)
+                    # safe_cost = self.get_safe_cost(x - dx, y - dy)
+                    safe_cost = self.safe_cost_map[x - dx][y - dy]
                     neighbors.append((x - dx, y - dy, md, safe_cost))
 
         # --- Hardcoded 90° forward and reverse turns ---
@@ -632,6 +651,7 @@ class MazeSolver:
 
             while heap:
                 # Pop the node with the smallest distance
+                # print(f"while heap: ", time.perf_counter())
                 _, cur_x, cur_y, cur_direction = heapq.heappop(heap)
                 
                 if (cur_x, cur_y, cur_direction) in visited:
@@ -643,8 +663,9 @@ class MazeSolver:
 
                 visited.add((cur_x, cur_y, cur_direction))
                 cur_distance = g_distance[(cur_x, cur_y, cur_direction)]
-
+                
                 for next_x, next_y, new_direction, safe_cost in self.get_neighbors(cur_x, cur_y, cur_direction):
+                    # print(f"self.get_neighbors: ", time.perf_counter())
                     if (next_x, next_y, new_direction) in visited:
                         continue
 
@@ -666,8 +687,11 @@ class MazeSolver:
                         heapq.heappush(heap, (next_cost, next_x, next_y, new_direction))
 
         # Nested loop through all the state pairings
+        nested_loop_count = 0
         for i in range(len(states) - 1):
             for j in range(i + 1, len(states)):
+                nested_loop_count += 1
+                print(f"nested loop count: ", nested_loop_count)
                 astar_search(states[i], states[j])
 
 
