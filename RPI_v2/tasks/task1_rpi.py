@@ -1,6 +1,11 @@
 """
 Task 1 RPi Implementation
 Contains image recognition + STM32 movement control
+
+PC AUTO-SEND MODE:
+- PC automatically sends detected images: "obstacle_id,confidence,image_id"
+- RPi receives and executes STM32 commands based on IMAGE_COMMANDS mapping
+- Use send_seen_command() to reset PC's detection state if needed
 """
 import sys
 import threading
@@ -274,6 +279,17 @@ class Task1RPI:
     def get_last_image(self) -> str:
         """Get last received image ID"""
         return self.last_image
+    
+    def send_seen_command(self):
+        """
+        Send SEEN command to PC to reset detection state
+        Use this to allow PC to re-detect the same images
+        """
+        try:
+            self.pc.send("SEEN")
+            print("[Task1] Sent SEEN command to PC")
+        except Exception as e:
+            print(f"[Task1] Failed to send SEEN command: {e}")
 
     def stop(self):
         """Stop all threads and connections"""

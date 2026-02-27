@@ -16,8 +16,8 @@ class IndoorsConfig(Config):
         # ========== Modify as needed: set your model file paths ==========
         Config.__init__(
             self,
-            r'C:\Users\huang\Desktop\MDP_imgrec\models\V5.pt',
-            r'C:\Users\huang\Desktop\MDP_imgrec\models\V5.pt',
+            '/Users/I766692/project/yeesbae/SC2079/MDP_imgrec/models/best.pt',
+            '/Users/I766692/project/yeesbae/SC2079/MDP_imgrec/models/best.pt',
         )
         # ================================================
 
@@ -26,8 +26,8 @@ class OutdoorsConfig(Config):
         # ========== Modify as needed: set your model file paths ==========
         Config.__init__(
             self,
-            r'C:\Users\huang\Desktop\MDP_imgrec\models\V5.pt',
-            r'C:\Users\huang\Desktop\MDP_imgrec\models\V5.pt',
+            '/Users/I766692/project/yeesbae/SC2079/MDP_imgrec/models/best.pt',
+            '/Users/I766692/project/yeesbae/SC2079/MDP_imgrec/models/best.pt',
         )
         # ================================================
         self.is_outdoors = True

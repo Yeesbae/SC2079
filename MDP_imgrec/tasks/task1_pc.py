@@ -1,6 +1,7 @@
 """
-Task 1 PC-side code
-Receives video stream, performs YOLO recognition, sends results back to RPi
+Task 1 PC-side code - AUTO-SEND MODE
+Receives video stream, performs YOLO recognition, and automatically sends results to RPi
+When a new image is detected, it immediately sends: "obstacle_id,confidence,image_id"
 """
 import socket
 import sys
@@ -48,6 +49,10 @@ class Task1PC:
 
         self.filename = "task1"  # ========== Stitching output file prefix ==========
         self.start_time = time_ns()
+        
+        # Auto-send variables
+        self.obstacle_id = 1  # Current obstacle ID counter
+        self.sent_images = set()  # Track which images have been sent
 
     def start(self):
         """Start all threads"""
@@ -70,7 +75,7 @@ class Task1PC:
         
     def on_result(self, result, frame):
         """
-        Recognition result callback
+        Recognition result callback - AUTO-SEND MODE
         
         Args:
             result: YOLO recognition result
@@ -96,43 +101,24 @@ class Task1PC:
                     frame
                 )
                 
-                # Save timestamp
+                # AUTO-SEND: Send immediately if this image hasn't been sent yet
+                if detected_img_id not in self.sent_images:
+                    message_content = f"{self.obstacle_id},{detected_conf_level},{detected_img_id}"
+                    print(f"[AUTO-SEND] Detected new image: {detected_img_id}, sending to RPi...")
+                    print(f"Sending: {message_content}")
+                    self.pc_client.send(message_content)
+                    
+                    self.sent_images.add(detected_img_id)
+                    self.stitching_arr.append(detected_img_id)
+                    self.obstacle_id += 1
+                
+                # Save timestamp (for legacy compatibility)
                 cur_time = time_ns()
                 old_time = cur_time
                 if detected_img_id in self.img_time_dict:
                     old_time = self.img_time_dict[detected_img_id][0]
                 
                 self.img_time_dict[detected_img_id] = (old_time, cur_time)
-                
-                # Check for pending obstacle matches
-                rem = len(self.img_pending_arr)
-                if rem > 0:
-                    max_overlap = 0
-                    max_obstacle_id = None
-                    max_index = None
-                    for i, (obstacle_id, timestamp) in enumerate(self.img_pending_arr):
-                        overlap = self.check_timestamp(
-                            detected_img_id, timestamp, old_time, cur_time
-                        )
-                        if overlap > max_overlap:
-                            max_overlap = overlap
-                            max_obstacle_id = obstacle_id
-                            max_index = i
-
-                    if max_obstacle_id is not None:
-                        self.match_image(max_obstacle_id, detected_img_id)
-                        self.img_pending_arr.pop(max_index)
-
-                        # If all images found, start stitching
-                        if self.should_stitch and len(self.stitching_arr) >= self.stitch_len:
-                            print("Found last image, stitching now...")
-                            self.stream_listener.close()
-                            self.should_stitch = False
-                            stitch_images(
-                                self.stitching_arr, 
-                                self.stitching_img_dict, 
-                                filename=self.filename
-                            )
 
         elif self.prev_image != "NONE":
             # No object detected
@@ -202,8 +188,9 @@ class Task1PC:
         Receive commands from RPi
         
         Command formats:
-        1. "DETECT,obstacle_id" - Request image for specified obstacle
+        1. "DETECT,obstacle_id" - Request image for specified obstacle (LEGACY - not used in auto-send mode)
         2. "PERFORM STITCHING,num" - Request stitching of num images
+        3. "SEEN" - Reset detection (allow re-detection of same images)
         """
         print("PC Socket connection started successfully")
         while not self.exit:
@@ -211,7 +198,12 @@ class Task1PC:
                 message_rcv = self.pc_client.receive()
                 print("Message received from RPi:", message_rcv)
 
-                if "DETECT" in message_rcv:
+                if "SEEN" in message_rcv:
+                    # Reset sent images to allow re-detection
+                    print("Received SEEN command - resetting detection state")
+                    self.sent_images.clear()
+
+                elif "DETECT" in message_rcv:
                     # Command format: "DETECT,obstacle_id"
                     obstacle_id = message_rcv.split(",")[1]
                     timestamp = time_ns()
