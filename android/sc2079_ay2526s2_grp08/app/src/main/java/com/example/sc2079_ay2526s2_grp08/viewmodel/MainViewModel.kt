@@ -1,5 +1,6 @@
 package com.example.sc2079_ay2526s2_grp08.viewmodel
 
+import android.bluetooth.BluetoothAdapter
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.sc2079_ay2526s2_grp08.bluetooth.BluetoothManager
@@ -7,6 +8,7 @@ import com.example.sc2079_ay2526s2_grp08.bluetooth.BtDeviceMapper
 import com.example.sc2079_ay2526s2_grp08.domain.*
 import com.example.sc2079_ay2526s2_grp08.domain.util.DirectionUtil
 import com.example.sc2079_ay2526s2_grp08.protocol.*
+import com.example.sc2079_ay2526s2_grp08.protocol.util.isMoveCommand
 import com.example.sc2079_ay2526s2_grp08.viewmodel.reducers.*
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -14,7 +16,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import kotlin.io.path.Path
 
 /**
  * Main ViewModel - the single point of interaction between UI and backend.
@@ -44,6 +45,8 @@ class MainViewModel(
     private var collectingPath = false
     private val collectedPoses = mutableListOf<Incoming.RobotPosition>()
     private var expectedPathCount: Int? = null
+    private var awaitingAck = false
+    private val pendingMoves = ArrayDeque<Outgoing>()
     val state: StateFlow<AppState> = _state
 
     init {
@@ -79,11 +82,12 @@ class MainViewModel(
 
     /** Connect to a specific Bluetooth device (client mode) */
     fun connectToDevice(device: BtDevice) {
+        log(LogEntry.Kind.INFO, "connectToDevice() called")
         autoListenOnDisconnect = false
         bt.stopServer()
         bt.disconnectClient()
 
-        val adapter = android.bluetooth.BluetoothAdapter.getDefaultAdapter()
+        val adapter = BluetoothAdapter.getDefaultAdapter()
         val remote = adapter?.getRemoteDevice(device.address)
         if (remote != null) bt.connect(remote)
         else log(LogEntry.Kind.ERROR, "No adapter / invalid address: ${device.address}")
@@ -173,8 +177,6 @@ class MainViewModel(
             val updated = s.placedObstacles.filterNot { it.obstacleId == obstacleId } + newObstacle
             s.copy(placedObstacles = updated, pendingObstacle = null, pendingPreview = null, dragPreview = null).withArenaDerivedFromPlacedObstacles()
         }
-
-        sendObstacleRect(newObstacle)
     }
 
     fun selectObstacle(protocolId: String){
@@ -218,19 +220,15 @@ class MainViewModel(
             val next = PlacementReducer.commitPlaced(s, placed)
             next
         }
-        sendObstacleRect(placed)
     }
 
     fun movePlaced(protocolId: String, bottomLeftX: Int, bottomLeftY: Int) {
         val s = _state.value
         val ob = s.placedObstacles.find { it.protocolId == protocolId } ?: return
 
-        send(Outgoing.RemoveObstacle(protocolId))
         val moved = ob.copy(bottomLeftX = bottomLeftX, bottomLeftY = bottomLeftY)
         _state.update { st -> PlacementReducer.commitPlaced(st, moved) }
         _state.update { it.copy(dragPreview = null) }
-
-        sendObstacleRect(moved)
     }
 
     fun previewMovePlaced(protocolId: String, bottomLeftX: Int, bottomLeftY: Int) {
@@ -241,12 +239,10 @@ class MainViewModel(
 
     fun removePlaced(protocolId: String) {
         _state.update { PlacementReducer.removePlaced(it, protocolId).copy(dragPreview = null) }
-        send(Outgoing.RemoveObstacle(protocolId)) // assume AMD removes all cells by id
     }
 
     fun setPlacedFacing(protocolId: String, facing: RobotDirection) {
         _state.update { PlacementReducer.updateFacing(it, protocolId, facing) }
-        send(Outgoing.SetObstacleFace(protocolId, facing)) // only meaningful for B1..B8
     }
 
     /**
@@ -266,34 +262,27 @@ class MainViewModel(
                 )
             )
         }
-        if (alsoSend) sendRobotRect()
-    }
-
-    private fun sendRobotRect() {
-        val r = _state.value.robot ?: return
-        val w = r.robotX.coerceAtLeast(1)
-        val h = r.robotY.coerceAtLeast(1)
-
-        val grid = ArenaConfig.GRID_SIZE
-        val blX = r.x.coerceIn(0, grid - w)
-        val blY = r.y.coerceIn(0, grid - h)
-
-        send(Outgoing.TaggedRobotRect(blX, blY, w, h, r.robotDirection))
     }
 
     fun sendStartExploration() {
-        send(Outgoing.StartExploration)
-        sendRobotRect()
         val s = _state.value
-        s.placedObstacles
-            .sortedBy { it.protocolId }
-            .forEach { placed ->
-                sendObstacleRect(placed)
-            }
+        val arena = s.arena ?: return
+        val robot = s.robot ?: return
+
+        val json = JsonProtocol.encodeStartExplore(
+            arena = arena,
+            robot = robot,
+            obstacles = s.placedObstacles.sortedBy { it.obstacleId }
+        )
+
+        bt.sendLine(json)
+        log(LogEntry.Kind.OUT, json)
         _state.update { it.copy(executionMode = ExecutionMode.PLANNED) }
     }
+
     fun sendStartFastestPath() {
-        send(Outgoing.StartFastestPath)
+        bt.sendLine("""{"cmd":"START_FAST"}""")
+        log(LogEntry.Kind.OUT, """{"cmd":"START_FAST"}""")
         _state.update { it.copy(executionMode = ExecutionMode.LIVE_TELEMETRY) }
     }
     fun sendStop() = send(Outgoing.StopRobot)
@@ -339,9 +328,6 @@ class MainViewModel(
     }
 
     fun resetAll() {
-        val s = _state.value
-        val ids = s.placedObstacles.map { it.protocolId }
-
         _state.update {
             it.copy(
                 robot = RobotState(x = 0, y = 0, directionDeg = 0),
@@ -353,16 +339,9 @@ class MainViewModel(
                 pendingObstacle = null,
                 pendingPreview = null,
                 dragPreview = null,
-                usedTargetObstacleIds = emptySet()
+                usedTargetObstacleIds = emptySet(),
             ).withArenaDerivedFromPlacedObstacles()
         }
-        send(Outgoing.SetRobotPosition(0, 0, RobotDirection.NORTH))
-        for (id in ids) send(Outgoing.RemoveObstacle(id))
-    }
-
-    /** Set robot position locally (without sending) */
-    fun setLocalRobotPosition(x: Int, y: Int, direction: RobotDirection) {
-        _state.update { s -> RobotReducer.setRobotPosition(s, x, y, DirectionUtil.toDegrees(direction)) }
     }
 
     private fun startPlannedPlayback(poses: List<Incoming.RobotPosition>) {
@@ -410,7 +389,7 @@ class MainViewModel(
     fun clearPath() {
         _state.update { s -> PathReducer.clearPath(s) }
     }
-    
+
     /** Toggle path playback */
     fun togglePathPlayback() {
         _state.update { s -> PathReducer.togglePlayback(s) }
@@ -432,6 +411,15 @@ class MainViewModel(
     }
 
     private fun send(msg: Outgoing) {
+        if (msg.isMoveCommand()) {
+            if (awaitingAck) {
+                pendingMoves.add(msg)
+                log(LogEntry.Kind.INFO, "QUEUED: ${ProtocolEncoder.encode(msg)}")
+                return
+            }
+            awaitingAck = true
+        }
+
         val line = ProtocolEncoder.encode(msg)
         bt.sendLine(line)
         log(LogEntry.Kind.OUT, line)
@@ -518,6 +506,16 @@ class MainViewModel(
 
 
     private fun handleIncomingLine(line: String) {
+        val raw = line.trim()
+        if (raw == "A") {
+            awaitingAck = false
+            log(LogEntry.Kind.INFO, "ACK received")
+
+            val next = if (pendingMoves.isNotEmpty()) pendingMoves.removeFirst() else null
+            if (next != null) send(next)
+            return
+        }
+
         when (val msg = ProtocolParser.parse(line)) {
             // C.10: Robot position update
             is Incoming.RobotPosition -> handleRobotPosition(msg)
@@ -547,9 +545,6 @@ class MainViewModel(
                 startPlannedPlayback(collectedPoses.toList())
             }
             is Incoming.PathAbort -> handlePathAbort()
-
-            // Sync request
-            is Incoming.RequestSync -> handleRequestSync()
 
             // Raw/unrecognized
             is Incoming.Raw -> { /* Already logged */ }
@@ -606,8 +601,8 @@ class MainViewModel(
     }
 
     private fun handlePathSequence(msg: Incoming.PathSequence) {
-        _state.update { s -> PathReducer.onPathSequence(s, msg) }
         log(LogEntry.Kind.INFO, "PATH RECEIVED: ${msg.poses.size} poses")
+        startPlannedPlayback(msg.poses)
     }
 
     private fun handlePathStep(msg: Incoming.PathStep) {
@@ -624,30 +619,9 @@ class MainViewModel(
         log(LogEntry.Kind.INFO, "PATH ABORTED")
     }
 
-    private fun handleRequestSync() {
-        val s = _state.value
-        s.placedObstacles.forEach { placed -> sendObstacleRect(placed) }
-        sendRobotRect()
-    }
-
     private fun buildProtocolIdForPending(state: AppState, pending: PendingObstacle): String {
         return "B${pending.obstacleId}"
     }
-
-    private fun sendObstacleRect(placed: PlacedObstacle) {
-        send(
-            Outgoing.TaggedObstacleRect(
-                obstacleId = placed.protocolId,
-                bottomLeftX = placed.bottomLeftX,
-                bottomLeftY = placed.bottomLeftY,
-                width = placed.width,
-                height = placed.height,
-                imageId = placed.targetId,
-                facing = placed.facing
-            )
-        )
-    }
-
 
     private fun log(kind: LogEntry.Kind, text: String) {
         _state.update { s -> LogReducer.append(s, kind, text) }

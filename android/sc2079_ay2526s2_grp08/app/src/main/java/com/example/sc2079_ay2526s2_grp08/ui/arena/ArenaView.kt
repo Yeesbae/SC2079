@@ -23,6 +23,7 @@ class ArenaView @JvmOverloads constructor(
         fun onPlacedDrag(protocolId: String, x: Int, y: Int)
         fun onPlacedDrop(protocolId: String, x: Int, y: Int)
         fun onPlacedRemove(protocolId: String)
+        fun onRobotTap()
     }
 
     private var listener: Listener? = null
@@ -116,6 +117,12 @@ class ArenaView @JvmOverloads constructor(
     private var downCellX: Int? = null
     private var downCellY: Int? = null
     private var moved = false
+
+    private var downOnRobot: Boolean = false
+    private fun isRobotAt(cx: Int, cy: Int): Boolean {
+        return cx in robotBlX until (robotBlX + robotW) &&
+                cy in robotBlY until (robotBlY + robotH)
+    }
 
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         super.onSizeChanged(w, h, oldw, oldh)
@@ -307,8 +314,15 @@ class ArenaView @JvmOverloads constructor(
                 draggingPending = false
                 draggingProtocolId = null
 
+                downOnRobot = false
+
                 if (inArena) {
                     val (cx, cy) = cell!!
+
+                    if (isRobotAt(cx, cy)) {
+                        downOnRobot = true
+                        return true
+                    }
 
                     // 1) If tapping on an existing placed obstacle => drag that obstacle
                     val pid = obstacleAt(cx, cy)
@@ -332,6 +346,8 @@ class ArenaView @JvmOverloads constructor(
 
                 moved = true
 
+                if (downOnRobot) return true
+
                 // Pending drag preview
                 if (draggingPending) {
                     listener?.onPendingPreview(c.first, c.second)
@@ -347,6 +363,13 @@ class ArenaView @JvmOverloads constructor(
             }
 
             MotionEvent.ACTION_UP -> {
+                if (downOnRobot && !moved) {
+                    downOnRobot = false
+                    listener?.onRobotTap()
+                    return true
+                }
+                downOnRobot = false
+
                 val pid = draggingProtocolId
                 val wasPending = draggingPending
 

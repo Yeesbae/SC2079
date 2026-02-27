@@ -28,7 +28,6 @@ class ConnectFragment : Fragment(R.layout.fragment_connect) {
     private lateinit var spDevices: Spinner
     private lateinit var btnConnect: Button
     private lateinit var btnDisconnect: Button
-    private lateinit var btnSendTest: Button
     private lateinit var tvLog: TextView
 
     // NEW: what the spinner is currently showing (paired OR scanned)
@@ -54,7 +53,6 @@ class ConnectFragment : Fragment(R.layout.fragment_connect) {
         spDevices = view.findViewById(R.id.spDevices)
         btnConnect = view.findViewById(R.id.btnConnect)
         btnDisconnect = view.findViewById(R.id.btnDisconnect)
-        btnSendTest = view.findViewById(R.id.btnSendTest)
         tvLog = view.findViewById(R.id.tvLog)
 
         btnRefresh.setOnClickListener {
@@ -85,10 +83,6 @@ class ConnectFragment : Fragment(R.layout.fragment_connect) {
 
         btnDisconnect.setOnClickListener {
             vm.disconnectAndReturnToListening()
-        }
-
-        btnSendTest.setOnClickListener {
-            vm.sendRaw("MOVE,F")
         }
 
         // Observe state (Status + Log + update spinner list)

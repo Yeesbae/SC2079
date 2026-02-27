@@ -67,8 +67,6 @@ object ProtocolParser {
             "PATH_ABORT", "PATHABORT" -> Incoming.PathAbort
             "P" -> parseRobotPosition(parts)
 
-            "REQUEST_SYNC", "REQUESTSYNC", "SYNC", "SEND_ARENA" -> Incoming.RequestSync
-
             // Compact Explore start echo
             "E" -> Incoming.StatusUpdate("Exploration started")
 
@@ -123,25 +121,6 @@ object ProtocolParser {
         return null
     }
 
-    /**
-     * Parse obstacle added: "ADD,<obstacleId>,(<x>,<y>)"
-     */
-    private fun parseObstacleAdded(parts: List<String>): Incoming? {
-        if (parts.size < 3) return null
-        val obstacleId = parts[1]
-
-        // Parse coordinates from "(x,y)" format
-        val coordStr = parts.drop(2).joinToString(",")
-        val coordMatch = Regex("\\(?(\\d+),\\s*(\\d+)\\)?").find(coordStr)
-        if (coordMatch != null) {
-            val x = coordMatch.groupValues[1].toIntOrNull() ?: return null
-            val y = coordMatch.groupValues[2].toIntOrNull() ?: return null
-            return Incoming.ObstacleUpdate(obstacleId, x, y)
-        }
-
-        return null
-    }
-
     private fun parseJson(raw: String): Incoming? {
         return try {
             val obj = JSONObject(raw)
@@ -161,7 +140,6 @@ object ProtocolParser {
                 "PATH_STEP" -> parseJsonPathStep(obj)
                 "PATH_COMPLETE" -> Incoming.PathComplete
                 "PATH_ABORT" -> Incoming.PathAbort
-                "REQUEST_SYNC", "SYNC" -> Incoming.RequestSync
                 else -> parseJsonByContent(obj)
             }
         } catch (_: Exception) {
@@ -176,8 +154,22 @@ object ProtocolParser {
             if (arr.length() >= 3) {
                 val x = arr.getInt(0)
                 val y = arr.getInt(1)
-                val dirStr = arr.optString(2, "N")
-                val dir = parseDirection(dirStr) ?: RobotDirection.NORTH
+                val dir = when {
+                    obj.has("d") -> {
+                        val dv = obj.optInt("d", 0)
+                        when (dv) {
+                            0 -> RobotDirection.NORTH
+                            2 -> RobotDirection.EAST
+                            4 -> RobotDirection.SOUTH
+                            6 -> RobotDirection.WEST
+                            else -> RobotDirection.NORTH
+                        }
+                    }
+                    else -> {
+                        val dStr = obj.optString("direction", obj.optString("dir", "N"))
+                        parseDirection(dStr) ?: RobotDirection.NORTH
+                    }
+                }
                 return Incoming.RobotPosition(x, y, dir)
             }
         }
@@ -273,8 +265,22 @@ object ProtocolParser {
                 val pose = arr.getJSONObject(i)
                 val x = pose.getInt("x")
                 val y = pose.getInt("y")
-                val d = pose.optString("direction", pose.optString("dir", pose.optString("d", "")))
-                val dir = DirectionUtil.fromProtocolToken(d)
+                val dir = when {
+                    pose.has("d") -> {
+                        val dv = pose.optInt("d", 0)
+                        when (dv) {
+                            0 -> RobotDirection.NORTH
+                            2 -> RobotDirection.EAST
+                            4 -> RobotDirection.SOUTH
+                            6 -> RobotDirection.WEST
+                            else -> RobotDirection.NORTH
+                        }
+                    }
+                    else -> {
+                        val dStr = pose.optString("direction", pose.optString("dir", "N"))
+                        DirectionUtil.fromProtocolToken(dStr)
+                    }
+                }
                 poses.add(Incoming.RobotPosition(x,y,dir))
             }
             if (poses.isNotEmpty()) Incoming.PathSequence(poses) else null
@@ -288,7 +294,22 @@ object ProtocolParser {
             val x = obj.getInt("x")
             val y = obj.getInt("y")
             val d = obj.optString("direction", obj.optString("dir", obj.optString("d", "")))
-            val dir = DirectionUtil.fromProtocolToken(d)
+            val dir = when {
+                obj.has("d") -> {
+                    val dv = obj.optInt("d", 0)
+                    when (dv) {
+                        0 -> RobotDirection.NORTH
+                        2 -> RobotDirection.EAST
+                        4 -> RobotDirection.SOUTH
+                        6 -> RobotDirection.WEST
+                        else -> RobotDirection.NORTH
+                    }
+                }
+                else -> {
+                    val dStr = obj.optString("direction", obj.optString("dir", "N"))
+                    DirectionUtil.fromProtocolToken(dStr)
+                }
+            }
             Incoming.PathStep(Incoming.RobotPosition(x, y, dir))
         } catch (_: Exception) {
             null
@@ -303,8 +324,22 @@ object ProtocolParser {
                 val pose = arr.getJSONObject(i)
                 val x = pose.getInt("x")
                 val y = pose.getInt("y")
-                val d = pose.optString("direction", pose.optString("dir", pose.optString("d", "")))
-                val dir = DirectionUtil.fromProtocolToken(d)
+                val dir = when {
+                    pose.has("d") -> {
+                        val dv = pose.optInt("d", 0)
+                        when (dv) {
+                            0 -> RobotDirection.NORTH
+                            2 -> RobotDirection.EAST
+                            4 -> RobotDirection.SOUTH
+                            6 -> RobotDirection.WEST
+                            else -> RobotDirection.NORTH
+                        }
+                    }
+                    else -> {
+                        val dStr = pose.optString("direction", pose.optString("dir", "N"))
+                        DirectionUtil.fromProtocolToken(dStr)
+                    }
+                }
                 poses.add(Incoming.RobotPosition(x, y, dir))
             }
             if (poses.isNotEmpty()) Incoming.PathSequence(poses) else null

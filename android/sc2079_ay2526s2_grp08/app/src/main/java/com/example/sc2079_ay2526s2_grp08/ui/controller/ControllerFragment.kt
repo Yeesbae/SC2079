@@ -30,8 +30,26 @@ class ControllerFragment : Fragment(R.layout.fragment_controller) {
         val arenaView = view.findViewById<ArenaView>(R.id.arenaView) ?: return
 
         val tvConn = view.findViewById<TextView>(R.id.tvConnStatus)
-        val tvNotif = view.findViewById<TextView>(R.id.tvNotifications)
         val tvRobotLoc = view.findViewById<TextView>(R.id.tvRobotLoc)
+        val tvChat = view.findViewById<TextView>(R.id.tvChatTranscript)
+        val etChat = view.findViewById<EditText>(R.id.etChatInput)
+        val btnChatSend = view.findViewById<Button>(R.id.btnChatSend)
+        val chatScroll = view.findViewById<android.widget.ScrollView>(R.id.chatScroll)
+
+        btnChatSend?.setOnClickListener {
+            val text = etChat?.text?.toString().orEmpty().trim()
+            if (text.isNotEmpty()) {
+                viewModel.sendRaw(text)
+                etChat?.setText("")
+            }
+        }
+
+        etChat?.setOnEditorActionListener { _, actionId, _ ->
+            if (actionId == android.view.inputmethod.EditorInfo.IME_ACTION_SEND) {
+                btnChatSend?.performClick()
+                true
+            } else false
+        }
 
         view.findViewById<Button>(R.id.btnObs1)?.setOnClickListener { showObstacleConfigDialog(1) }
         view.findViewById<Button>(R.id.btnObs2)?.setOnClickListener { showObstacleConfigDialog(2) }
@@ -59,7 +77,19 @@ class ControllerFragment : Fragment(R.layout.fragment_controller) {
                     arenaView.setDragPreview(s.dragPreview)
 
                     tvConn?.text = s.conn.name
-                    tvNotif?.text = s.statusText ?: "-"
+                    val chatLines = s.log
+                        .takeLast(120)
+                        .joinToString("\n") { e ->
+                            val tag = when (e.kind.name) {
+                                "IN" -> "RPi"
+                                "OUT" -> "Me"
+                                else -> "Info"
+                            }
+                            "[$tag] ${e.text}"
+                        }
+
+                    tvChat?.text = chatLines
+                    chatScroll?.post { chatScroll.fullScroll(View.FOCUS_DOWN) }
 
                     val r = s.robot
                     if (r != null) {
@@ -110,13 +140,16 @@ class ControllerFragment : Fragment(R.layout.fragment_controller) {
             override fun onPlacedRemove(protocolId: String) {
                 viewModel.removePlaced(protocolId)
             }
+
+            override fun onRobotTap() {
+                showRobotPoseDialog()
+            }
         })
 
         view.findViewById<Button>(R.id.btnForward)?.setOnClickListener { viewModel.sendMoveForward() }
         view.findViewById<Button>(R.id.btnBack)?.setOnClickListener { viewModel.sendMoveBackward() }
         view.findViewById<Button>(R.id.btnLeft)?.setOnClickListener { viewModel.sendTurnLeft() }
         view.findViewById<Button>(R.id.btnRight)?.setOnClickListener { viewModel.sendTurnRight() }
-        view.findViewById<Button>(R.id.btnRobotPose)?.setOnClickListener { showRobotPoseDialog() }
         view.findViewById<Button>(R.id.btnStop)?.setOnClickListener { viewModel.sendStop() }
         view.findViewById<Button>(R.id.btnExplore)?.setOnClickListener { viewModel.sendStartExploration() }
         view.findViewById<Button>(R.id.btnFastest)?.setOnClickListener { viewModel.sendStartFastestPath() }

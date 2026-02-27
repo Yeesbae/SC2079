@@ -164,6 +164,11 @@ internal class BluetoothCommunicationService(
                             val line = lineBuilder.consumeLine()
 
                             if (line != null) {
+                                val b64 = parseImageBase64(line)
+                                if (b64 != null) {
+                                    onImage?.invoke(b64.obstacleId, b64.targetId, b64.face, b64.bytes)
+                                    continue
+                                }
                                 val hdr = parseImageHeader(line)
                                 if (hdr != null) {
                                     expectingImageBytes = hdr.len
@@ -262,7 +267,29 @@ internal class BluetoothCommunicationService(
         fun reset() = synchronized(q) { q.clear() }
     }
 
-    //bytes stream detection outside of protocolparser as it is not a linebreak
+    //For debugging purposes using AMDtool for base64 decoding
+    private fun parseImageBase64(line: String): ImageBase64? {
+        val parts = line.split(",").map { it.trim() }
+        if (parts.size < 6) return null
+        if (parts[0].uppercase() != "TB64") return null
+
+        val obstacleId = parts[1]
+        val targetId = parts[2]
+        val face = parts[3].takeIf { it != "-" && it.isNotBlank() }
+        val typeMarker = parts[4] // "J"
+        val b64 = parts.subList(5, parts.size).joinToString(",") // in case b64 has commas (rare)
+
+        return try {
+            val bytes = android.util.Base64.decode(b64, android.util.Base64.DEFAULT)
+            if (bytes.isEmpty() || bytes.size > 2_000_000) return null
+            ImageBase64(obstacleId, targetId, face, typeMarker, bytes)
+        } catch (_: Exception) {
+            null
+        }
+    }
+    private data class ImageBase64(val obstacleId: String, val targetId: String, val face: String?, val typeMarker: String?, val bytes: ByteArray)
+
+    //bytes stream detection outside of protocol parser as it is not a linebreak
     private fun parseImageHeader(line: String): ImageHeader? {
         val parts = line.split(",").map { it.trim() }
         if (parts.size < 6) return null

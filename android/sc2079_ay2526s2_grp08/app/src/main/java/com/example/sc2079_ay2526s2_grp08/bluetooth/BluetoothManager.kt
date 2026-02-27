@@ -314,7 +314,7 @@ class BluetoothManager (private val appCtx: Context) {
         Thread {
             try {
                 try { a.cancelDiscovery() } catch (_: Exception) {}
-                val s = device.createInsecureRfcommSocketToServiceRecord(BluetoothConfig.SPP_UUID)
+                val s = device.createRfcommSocketToServiceRecord(BluetoothConfig.SPP_UUID)
                 s.connect()
 
                 setState(State.CONNECTED, "Connected")
@@ -345,7 +345,8 @@ class BluetoothManager (private val appCtx: Context) {
     }
 
     fun sendLine(line: String) {
-        val ok = comm.sendLine(line)
+        val normalized = if (line.endsWith("\n")) line else "$line\n"
+        val ok = comm.sendLine(normalized)
         if (!ok) {
             onEvent?.invoke(Event.SendRejected(SendRejectReason.NOT_CONNECTED, "Not connected"))
         }

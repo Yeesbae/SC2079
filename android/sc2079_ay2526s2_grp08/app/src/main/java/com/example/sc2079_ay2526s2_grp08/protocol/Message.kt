@@ -38,8 +38,6 @@ sealed interface Incoming {
     object PathAbort : Incoming
     object PathEnd : Incoming
 
-    object RequestSync : Incoming
-
     data class Raw(val line: String) : Incoming
 }
 
@@ -59,48 +57,6 @@ sealed interface Outgoing {
     /** Turn by specific angle in degrees (optional extension) */
     data class TurnDegrees(val degrees: Int) : Outgoing
 
-    data class TaggedObstacleRect(
-        val obstacleId: String,
-        val bottomLeftX: Int,
-        val bottomLeftY: Int,
-        val width: Int,
-        val height: Int,
-        val imageId: String? = null,
-        val facing: RobotDirection? = null
-    ) : Outgoing
-
-    data class AddObstacle(
-        val obstacleId: String,     // e.g., "B1", "1"
-        val x: Int,
-        val y: Int
-    ) : Outgoing
-
-    data class RemoveObstacle(val obstacleId: String) : Outgoing
-
-    data class SetObstacleFace(
-        val obstacleId: String,
-        val face: RobotDirection
-    ) : Outgoing
-
-    data class SetRobotPosition(
-        val x: Int,
-        val y: Int,
-        val direction: RobotDirection
-    ) : Outgoing
-
-    data class TaggedRobotRect(
-        val bottomLeftX: Int,
-        val bottomLeftY: Int,
-        val width: Int,
-        val height: Int,
-        val facing: RobotDirection
-    ) : Outgoing
-
-
-    object RequestSync : Outgoing
-
-    object StartExploration : Outgoing
-    object StartFastestPath : Outgoing
     object StopRobot : Outgoing
 
     data class ConfigButton(val buttonId: Int, val command: String) : Outgoing
