@@ -9,11 +9,11 @@ def task_1():
     # Start robot at (2, 2) facing NORTH
     solver = MazeSolver(size_x=ARENA_WIDTH, size_y=ARENA_HEIGHT, robot_x=3, robot_y=3, robot_direction=Direction.NORTH)
     
-    solver.add_obstacle(x=6,  y=6,  direction=Direction.NORTH, obstacle_id=1)
-    solver.add_obstacle(x=30, y=6,  direction=Direction.WEST,  obstacle_id=2)
-    solver.add_obstacle(x=6,  y=30, direction=Direction.EAST,  obstacle_id=3)
-    solver.add_obstacle(x=30, y=30, direction=Direction.SOUTH, obstacle_id=4)
-    solver.add_obstacle(x=18, y=18, direction=Direction.WEST,  obstacle_id=5)
+    # solver.add_obstacle(x=6,  y=6,  direction=Direction.NORTH, obstacle_id=1)
+    # solver.add_obstacle(x=30, y=6,  direction=Direction.WEST,  obstacle_id=2)
+    # solver.add_obstacle(x=6,  y=30, direction=Direction.EAST,  obstacle_id=3)
+    # solver.add_obstacle(x=30, y=30, direction=Direction.SOUTH, obstacle_id=4)
+    # solver.add_obstacle(x=18, y=18, direction=Direction.WEST,  obstacle_id=5)
 
     solver.add_obstacle(x=2,  y=15,  direction=Direction.SOUTH, obstacle_id=1)
     solver.add_obstacle(x=16, y=4,  direction=Direction.EAST,  obstacle_id=2)

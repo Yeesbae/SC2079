@@ -376,13 +376,19 @@ def path_to_stm_commands(path_list):
                     move_dir = None
 
                 # determine left/right based on orientation change
-                diff = (new_dir.value - current_dir.value) % 4
+                cur_idx = current_dir.value // 2
+                new_idx = new_dir.value // 2
+
+                diff = (new_idx - cur_idx) % 4
+
                 if diff == 1:
-                    turn_lr = 'L'
+                    turn_lr = 'R'
                 elif diff == 3:
+                    turn_lr = 'L'
+                elif diff == 2:
+                    # 180° — shouldn't normally happen in your planner
                     turn_lr = 'R'
                 else:
-                    # 180° or unexpected; default to right
                     turn_lr = 'R'
 
                 # was movement forward or backward relative to previous dir?

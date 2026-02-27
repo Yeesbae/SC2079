@@ -8,6 +8,7 @@ import json
 import threading
 from pathAlgo import MazeSolver
 from Entities.Cell import CellState
+from Util.helper import path_to_stm_commands
 from constants import Direction
 
 
@@ -83,11 +84,12 @@ class AlgoServer:
 
                     # Calculate path
                     path = self._calculate_path(arena_data)
+                    stm_commands = path_to_stm_commands(path)
 
                     # Send path back
-                    path_json = json.dumps(path)
+                    path_json = json.dumps(stm_commands)
                     conn.send(path_json.encode('utf-8'))
-                    print(f"[AlgoServer] Sent path to {addr}")
+                    print(f"[AlgoServer] Sent STM commands to {addr}")
 
                 except json.JSONDecodeError:
                     print(f"[AlgoServer] Invalid JSON received from {addr}")
