@@ -307,3 +307,133 @@ def capture_image():
     result = random.choice(["LEFT", "RIGHT"])
     print(f"Captured image indicates turn: {result}")
     return result
+
+@staticmethod
+def path_to_stm_commands(path_list):
+        """Convert a list of waypoint dicts into STM32 motor commands.
+
+        The argument is the same structure returned by :meth:`_calculate_path`:
+        a list of ``{'x':..., 'y':..., 'd':...}`` dictionaries.  Movement is
+        interpreted as follows:
+
+        * each grid-cell difference corresponds to 5 cm of motion;
+        * consecutive straight steps in the same direction are merged into a
+          single ``S<F|B><distance>`` command (three-digit distance in cm);
+        * any step where both ``x`` and ``y`` change is treated as a 90° turn.
+          The turn direction is determined from the old/new orientation, and
+          whether the robot was moving forward or in reverse at the time.
+          Commands look like ``RF090``, ``LB090`` etc.
+
+        The helper is deliberately a static method so it can be invoked without
+        needing an ``AlgoServer`` instance.  It does **not** modify the input
+        list.
+        """
+        if not path_list:
+            return []
+
+        commands = []
+
+        # normalize entries to dictionaries so we can handle CellState or dict
+        def to_dict(elem):
+            if isinstance(elem, dict):
+                return elem
+            # fall back to attribute access
+            x = getattr(elem, 'x', None)
+            y = getattr(elem, 'y', None)
+            d = None
+            if hasattr(elem, 'direction'):
+                d = getattr(elem.direction, 'value', None)
+            elif hasattr(elem, 'd'):
+                d = getattr(elem, 'd')
+            return {'x': x, 'y': y, 'd': d}
+
+        prev = to_dict(path_list[0])
+        current_dir = Direction(prev['d'])
+
+        move_dir = None  # 'F' or 'B'
+        move_dist = 0
+
+        # unit vectors for each direction (used to determine forward/back)
+        vector_map = {
+            Direction.NORTH: (0, 1),
+            Direction.SOUTH: (0, -1),
+            Direction.EAST: (1, 0),
+            Direction.WEST: (-1, 0),
+        }
+
+        for cell_raw in path_list[1:]:
+            cell = to_dict(cell_raw)
+            dx = cell['x'] - prev['x']
+            dy = cell['y'] - prev['y']
+            new_dir = Direction(cell.get('d', current_dir.value))
+
+            # turning event when both coordinates change
+            if dx != 0 and dy != 0:
+                # flush any ongoing straight move
+                if move_dist:
+                    commands.append(f"S{move_dir}{move_dist:03d}")
+                    move_dist = 0
+                    move_dir = None
+
+                # determine left/right based on orientation change
+                diff = (new_dir.value - current_dir.value) % 4
+                if diff == 1:
+                    turn_lr = 'L'
+                elif diff == 3:
+                    turn_lr = 'R'
+                else:
+                    # 180° or unexpected; default to right
+                    turn_lr = 'R'
+
+                # was movement forward or backward relative to previous dir?
+                forward = (dx * vector_map[current_dir][0]
+                           + dy * vector_map[current_dir][1]) > 0
+                turn_fb = 'F' if forward else 'B'
+                commands.append(f"{turn_lr}{turn_fb}090")
+                current_dir = new_dir
+            else:
+                # straight motion along one axis
+                if dx > 0:
+                    abs_dir = Direction.EAST
+                elif dx < 0:
+                    abs_dir = Direction.WEST
+                elif dy > 0:
+                    abs_dir = Direction.NORTH
+                elif dy < 0:
+                    abs_dir = Direction.SOUTH
+                else:
+                    abs_dir = current_dir
+
+                # determine forward/back relative to orientation
+                if abs_dir == current_dir:
+                    fb = 'F'
+                elif abs_dir == {
+                    Direction.NORTH: Direction.SOUTH,
+                    Direction.SOUTH: Direction.NORTH,
+                    Direction.EAST: Direction.WEST,
+                    Direction.WEST: Direction.EAST,
+                }[current_dir]:
+                    fb = 'B'
+                else:
+                    # orientation mismatch (shouldn't happen)
+                    fb = 'F'
+
+                # aggregate distance (5 cm per grid unit)
+                step_cm = 5
+                if move_dist and fb == move_dir:
+                    move_dist += step_cm
+                else:
+                    if move_dist:
+                        commands.append(f"S{move_dir}{move_dist:03d}")
+                    move_dir = fb
+                    move_dist = step_cm
+
+                current_dir = new_dir
+
+            prev = cell
+
+        # flush any remaining straight move after loop
+        if move_dist:
+            commands.append(f"S{move_dir}{move_dist:03d}")
+
+        return commands
