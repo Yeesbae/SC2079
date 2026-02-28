@@ -7,7 +7,7 @@ from Entities.Bot import Robot
 from Entities.Cell import CellState
 from Entities.Obstacle import Obstacle
 from Entities.Grid import Grid
-from constants import Direction, MOVE_DIRECTION, TURN_FACTOR, ITERATIONS, TURN_RADIUS, SAFE_COST, SMALL_TURN
+from constants import Direction, MOVE_DIRECTION, TURN_FACTOR, NORTH_LEFT_MASK, TURN_RADIUS, SAFE_COST, SMALL_TURN
 from python_tsp.exact import solve_tsp_dynamic_programming
 
 
@@ -386,96 +386,130 @@ class MazeSolver:
 
         return 0
     
-    def get_arc_points_from_endpoints(
-        self,
-        start_x, start_y,
-        end_x, end_y,
-        start_dir,
-        radius=TURN_RADIUS,
-        steps=20
-    ):
+    # def get_arc_points_from_endpoints(
+    #     self,
+    #     start_x, start_y,
+    #     end_x, end_y,
+    #     start_dir,
+    #     radius=TURN_RADIUS,
+    #     steps=20
+    # ):
+    #     """
+    #     Generate an arc of a quadrant of a circle given:
+    #     - start position
+    #     - end position
+    #     - start direction
+    #     - radius
+
+    #     Assumes axis-aligned grid and exact quarter-circle motion.
+    #     """
+
+    #     dx = end_x - start_x
+    #     dy = end_y - start_y
+
+    #     # Sanity check: must be a quarter circle
+    #     if abs(dx) != radius or abs(dy) != radius:
+    #         raise ValueError("End point does not form a 90° arc with given radius")
+
+    #     # Determine arc center candidates
+    #     if start_dir == Direction.NORTH:
+    #         candidates = [
+    #             (start_x + radius, start_y),  # right turn
+    #             (start_x - radius, start_y),  # left turn
+    #         ]
+    #     elif start_dir == Direction.SOUTH:
+    #         candidates = [
+    #             (start_x - radius, start_y),
+    #             (start_x + radius, start_y),
+    #         ]
+    #     elif start_dir == Direction.EAST:
+    #         candidates = [
+    #             (start_x, start_y - radius),
+    #             (start_x, start_y + radius),
+    #         ]
+    #     elif start_dir == Direction.WEST:
+    #         candidates = [
+    #             (start_x, start_y + radius),
+    #             (start_x, start_y - radius),
+    #         ]
+    #     else:
+    #         raise ValueError("Invalid start direction")
+
+    #     # Pick the center that places both start and end on the circle
+    #     cx = cy = None
+    #     for cxx, cyy in candidates:
+    #         if (
+    #             abs((start_x - cxx)**2 + (start_y - cyy)**2 - radius**2) < 1e-6 and
+    #             abs((end_x - cxx)**2 + (end_y - cyy)**2 - radius**2) < 1e-6
+    #         ):
+    #             cx, cy = cxx, cyy
+    #             break
+
+    #     if cx is None:
+    #         raise RuntimeError("No valid arc center found")
+
+    #     # Compute angles
+    #     start_angle = math.atan2(start_y - cy, start_x - cx)
+    #     end_angle   = math.atan2(end_y - cy, end_x - cx)
+
+    #     # Ensure 90° sweep (choose shortest direction)
+    #     delta = end_angle - start_angle
+    #     if delta > math.pi:
+    #         delta -= 2 * math.pi
+    #     elif delta < -math.pi:
+    #         delta += 2 * math.pi
+
+    #     # Generate arc points
+    #     points = []
+    #     for i in range(steps + 1):
+    #         t = i / steps
+    #         angle = start_angle + delta * t
+    #         x = cx + radius * math.cos(angle)
+    #         y = cy + radius * math.sin(angle)
+    #         points.append((x, y))
+
+    #     return points
+
+
+    # def is_arc_safe(self, arc_points):
+    #     for x, y in arc_points:
+    #         # floor is safer than round for collision detection
+    #         if not self.grid.reachable(math.floor(x), math.floor(y)):
+    #             return False
+    #     return True
+
+    def is_turn_sweep_safe(self, x, y, direction, turn_type, move_type):
         """
-        Generate an arc of a quadrant of a circle given:
-        - start position
-        - end position
-        - start direction
-        - radius
-
-        Assumes axis-aligned grid and exact quarter-circle motion.
+        Returns False if any obstacle blocks the turn.
+        Uses NORTH_LEFT_MASK as the base reference frame.
         """
 
-        dx = end_x - start_x
-        dy = end_y - start_y
+        for ob in self.grid.obstacles:
+            dx = ob.x + 1 - x
+            dy = ob.y + 1 - y
 
-        # Sanity check: must be a quarter circle
-        if abs(dx) != radius or abs(dy) != radius:
-            raise ValueError("End point does not form a 90° arc with given radius")
+            # --- Rotate obstacle into NORTH reference frame ---
+            if direction == Direction.NORTH:
+                rdx, rdy = dx, dy
+            elif direction == Direction.EAST:
+                rdx, rdy = -dy, dx
+            elif direction == Direction.SOUTH:
+                rdx, rdy = -dx, -dy
+            elif direction == Direction.WEST:
+                rdx, rdy = dy, -dx
 
-        # Determine arc center candidates
-        if start_dir == Direction.NORTH:
-            candidates = [
-                (start_x + radius, start_y),  # right turn
-                (start_x - radius, start_y),  # left turn
-            ]
-        elif start_dir == Direction.SOUTH:
-            candidates = [
-                (start_x - radius, start_y),
-                (start_x + radius, start_y),
-            ]
-        elif start_dir == Direction.EAST:
-            candidates = [
-                (start_x, start_y - radius),
-                (start_x, start_y + radius),
-            ]
-        elif start_dir == Direction.WEST:
-            candidates = [
-                (start_x, start_y + radius),
-                (start_x, start_y - radius),
-            ]
-        else:
-            raise ValueError("Invalid start direction")
+            # --- Mirror if RIGHT turn ---
+            if turn_type == "RIGHT":
+                rdx = -rdx
 
-        # Pick the center that places both start and end on the circle
-        cx = cy = None
-        for cxx, cyy in candidates:
-            if (
-                abs((start_x - cxx)**2 + (start_y - cyy)**2 - radius**2) < 1e-6 and
-                abs((end_x - cxx)**2 + (end_y - cyy)**2 - radius**2) < 1e-6
-            ):
-                cx, cy = cxx, cyy
-                break
+            if move_type == "BACKWARD":
+                rdy = -rdy
 
-        if cx is None:
-            raise RuntimeError("No valid arc center found")
+            # --- Check against mask intervals ---
+            for dx_min, dx_max, dy_min, dy_max in NORTH_LEFT_MASK:
+                if dx_min <= rdx <= dx_max and dy_min <= rdy <= dy_max:
+                    return False
 
-        # Compute angles
-        start_angle = math.atan2(start_y - cy, start_x - cx)
-        end_angle   = math.atan2(end_y - cy, end_x - cx)
-
-        # Ensure 90° sweep (choose shortest direction)
-        delta = end_angle - start_angle
-        if delta > math.pi:
-            delta -= 2 * math.pi
-        elif delta < -math.pi:
-            delta += 2 * math.pi
-
-        # Generate arc points
-        points = []
-        for i in range(steps + 1):
-            t = i / steps
-            angle = start_angle + delta * t
-            x = cx + radius * math.cos(angle)
-            y = cy + radius * math.sin(angle)
-            points.append((x, y))
-
-        return points
-
-
-    def is_arc_safe(self, arc_points):
-        for x, y in arc_points:
-            # floor is safer than round for collision detection
-            if not self.grid.reachable(math.floor(x), math.floor(y)):
-                return False
         return True
 
     def get_neighbors(self, x, y, direction):
@@ -500,38 +534,42 @@ class MazeSolver:
         # Map of valid turns (dx, dy) → resulting end direction
         turn_map = {
             Direction.NORTH: [
-                ((x_change, y_change), Direction.EAST),
-                ((-x_change, y_change), Direction.WEST),
-                ((x_change, -y_change), Direction.WEST),
-                ((-x_change, -y_change), Direction.EAST),
+                ((x_change, y_change), Direction.EAST, "RIGHT", "FORWARD"),
+                ((-x_change, y_change), Direction.WEST, "LEFT", "FORWARD"),
+                ((x_change, -y_change), Direction.WEST, "RIGHT", "BACKWARD"),
+                ((-x_change, -y_change), Direction.EAST, "LEFT", "BACKWARD"),
             ],
             Direction.SOUTH: [
-                ((x_change, -y_change), Direction.EAST),
-                ((-x_change, -y_change), Direction.WEST),
-                ((x_change, y_change), Direction.WEST),
-                ((-x_change, y_change), Direction.EAST),
+                ((x_change, -y_change), Direction.EAST, "LEFT", "FORWARD"),
+                ((-x_change, -y_change), Direction.WEST, "RIGHT", "FORWARD"),
+                ((x_change, y_change), Direction.WEST, "LEFT", "BACKWARD"),
+                ((-x_change, y_change), Direction.EAST, "RIGHT", "BACKWARD"),
             ],
             Direction.EAST: [
-                ((x_change, y_change), Direction.NORTH),
-                ((-x_change, y_change), Direction.SOUTH),
-                ((-x_change, -y_change), Direction.NORTH),
-                ((x_change, -y_change), Direction.SOUTH),
+                ((x_change, y_change), Direction.NORTH, "LEFT", "FORWARD"),
+                ((-x_change, y_change), Direction.SOUTH, "LEFT", "BACKWARD"),
+                ((-x_change, -y_change), Direction.NORTH, "RIGHT", "BACKWARD"),
+                ((x_change, -y_change), Direction.SOUTH, "RIGHT", "FORWARD"),
             ],
             Direction.WEST: [
-                ((-x_change, y_change), Direction.NORTH),
-                ((-x_change, -y_change), Direction.SOUTH),
-                ((x_change, y_change), Direction.SOUTH),
-                ((x_change, -y_change), Direction.NORTH), 
+                ((-x_change, y_change), Direction.NORTH, "RIGHT", "FORWARD"),
+                ((-x_change, -y_change), Direction.SOUTH, "LEFT", "FORWARD"),
+                ((x_change, y_change), Direction.SOUTH, "RIGHT", "BACKWARD"),
+                ((x_change, -y_change), Direction.NORTH, "LEFT", "BACKWARD"), 
             ]
         }
 
-        for (dx, dy), end_dir in turn_map[direction]:
-            arc_points = self.get_arc_points_from_endpoints(x, y, x + dx, y + dy, direction, radius=x_change, steps=10)
+        for (dx, dy), end_dir, turn_type, move_type in turn_map[direction]:
+            new_x = x + dx
+            new_y = y + dy
 
-            if self.is_arc_safe(arc_points):
-                safe_cost = self.get_safe_cost(x + dx, y + dy) + 10
-                neighbors.append((x + dx, y + dy, end_dir, safe_cost))
-                
+            if not self.grid.reachable(new_x, new_y):
+                continue
+
+            if self.is_turn_sweep_safe(x, y, direction, turn_type, move_type):
+                safe_cost = self.get_safe_cost(new_x, new_y) + 10
+                neighbors.append((new_x, new_y, end_dir, safe_cost))
+                    
         return neighbors
     
 

@@ -83,6 +83,15 @@ MOVE_DIRECTION = [
     (0, -1, Direction.SOUTH),
 ]
 
+# Calculated when assuming coors for both car and obstacle are the center
+NORTH_LEFT_MASK = [
+    (-8, -4, 2, 8),
+    (-3, -1, 4, 8),
+    (0, 1, 4, 7),
+    (2, 2, 4, 6),
+    (3, 3, 4, 4),
+]
+
 
 # =====================
 # Planning / costs
