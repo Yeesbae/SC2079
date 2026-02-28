@@ -84,6 +84,7 @@ MOVE_DIRECTION = [
 ]
 
 # Calculated when assuming coors for both car and obstacle are the center
+# The mask is calculated by calculating inner & outer sweep circle using GeogeBra Tool.
 NORTH_LEFT_MASK = [
     (-8, -4, 2, 8),
     (-3, -1, 4, 8),
@@ -98,8 +99,9 @@ NORTH_LEFT_MASK = [
 # =====================
 
 ITERATIONS = 2000
-SAFE_COST = 1200
-
+TOO_CLOSE_PENALTY = 100
+MINIMUM_ALLOWED_DISTANCE_BETWEEN_CAR_AND_OBSTACLE_CM = 5
+MINIMUM_ALLOWED_DISTANCE_BETWEEN_CAR_AND_OBSTACLE_CELLS = MINIMUM_ALLOWED_DISTANCE_BETWEEN_CAR_AND_OBSTACLE_CM // CELL_SIZE_CM
 
 # =====================
 # Screenshot Costs

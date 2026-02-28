@@ -58,59 +58,6 @@ class Grid:
         """
         return self.obstacles
 
-    # def reachable(self, x: int, y: int, turn=False, preTurn=False) -> bool:
-    #     """Checks whether the given x,y coordinate is reachable/safe. Criterion is as such:
-    #     - Must be at least 4 units away in total (x+y) from the obstacle
-    #     - Greater distance (x or y distance) must be at least 3 units away from obstacle
-
-    #     Args:
-    #         x (int): _description_
-    #         y (int): _description_
-
-    #     Returns:
-    #         bool: _description_
-    #     """
-        
-    #     if not self.is_valid_coord(x, y):
-    #         return False
-
-    #     for ob in self.obstacles:
-    #         # print(f"Looking at position x:{x} y:{y} against ob: {ob.x} {ob.y}")
-    #         if ob.x == 8 and ob.y <= 8 and x < 8 and y < 8:
-    #             # print(f"ob.x: {ob.x} ob.y: {ob.y} x: {x} y:{y} Triggered four bypass")
-    #             continue
-
-    #         # if x <= 3 and y <= 4:
-    #         #     continue
-
-    #         # Must be at least 4 units away in total (x+y)
-
-    #         if abs(ob.x - x) + abs(ob.y - y) >= 8:
-    #             # print(f"ob.x: {ob.x} ob.y: {ob.y} x: {x} y:{y} Triggered more than 3 units bypass")
-    #             continue
-
-    #         # If max(x,y) is less than 3 units away, consider not reachable
-    #         # if max(abs(ob.x - x), abs(ob.y - y)) < EXPANDED_CELL * 2 + 1:
-
-    #         if turn:
-    #             if max(abs(ob.x - x), abs(ob.y - y)) < ROBOT_HALF_CELLS * 2 + 1:
-    #                 # if ob.x == 0 and ob.y == 10 and x == 1 and y == 12:
-    #                 #     print(f"ob.x: {ob.x} ob.y: {ob.y} x: {x} y:{y} Triggered less than 3 max units trap")
-    #                 return False
-                
-    #         if preTurn:
-    #             if max(abs(ob.x - x), abs(ob.y - y)) < ROBOT_HALF_CELLS * 2 + 1:
-    #                 # if ob.x == 0 and ob.y == 10 and x == 1 and y == 12:
-    #                 #     print(f"ob.x: {ob.x} ob.y: {ob.y} x: {x} y:{y} Triggered less than 3 max units trap")
-    #                 return False
-                
-    #         else:
-    #             if max(abs(ob.x - x), abs(ob.y - y)) < 4:
-    #                 # print(f"ob.x: {ob.x} ob.y: {ob.y} x: {x} y:{y} Triggered less than 3 max units trap")
-    #                 return False
-
-    #     return True
-
     def reachable(self, x: int, y: int) -> bool:
         """Checks whether the given x, y coordinate is reachable/safe. Criterion is as such:
         - Given a target coordinate of robot, iterate through the available obstacles, 

@@ -24,9 +24,8 @@ def task_1():
     solver.add_obstacle(x=18, y=35, direction=Direction.EAST, obstacle_id=7)
     solver.add_obstacle(x=34, y=35, direction=Direction.WEST,  obstacle_id=8)
 
-    # 4 Obs around  seconds
     # 5 Obs around 10.51 ~ 11.63 seconds
-    # 8 Obs around 40.41 ~ 43.14 seconds
+    # 8 Obs around 40.41 ~ 51.46 seconds
 
     print("Calculating optimal Hamiltonian path...")
 

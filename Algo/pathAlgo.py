@@ -7,7 +7,7 @@ from Entities.Bot import Robot
 from Entities.Cell import CellState
 from Entities.Obstacle import Obstacle
 from Entities.Grid import Grid
-from constants import Direction, MOVE_DIRECTION, TURN_FACTOR, NORTH_LEFT_MASK, TURN_RADIUS, SAFE_COST, SMALL_TURN
+from constants import Direction, MOVE_DIRECTION, TURN_FACTOR, NORTH_LEFT_MASK, TURN_RADIUS, TOO_CLOSE_PENALTY, SMALL_TURN, ROBOT_HALF_CELLS, OBSTACLE_HALF_CELLS, MINIMUM_ALLOWED_DISTANCE_BETWEEN_CAR_AND_OBSTACLE_CELLS
 from python_tsp.exact import solve_tsp_dynamic_programming
 
 
@@ -374,110 +374,13 @@ class MazeSolver:
         Returns:
             int: safe cost
         """
-        for ob in self.grid.obstacles:
-            if abs(ob.x-x) == 4 and abs(ob.y-y) == 4:
-                return SAFE_COST
-            
-            if abs(ob.x-x) == 2 and abs(ob.y-y) == 4:
-                return SAFE_COST
-            
-            if abs(ob.x-x) == 4 and abs(ob.y-y) == 2:
-                return SAFE_COST
+        # for ob in self.grid.obstacles:
+        #     if abs(ob.x + 1 - x) <= ROBOT_HALF_CELLS + OBSTACLE_HALF_CELLS + MINIMUM_ALLOWED_DISTANCE_BETWEEN_CAR_AND_OBSTACLE_CELLS or abs(ob.y + 1 - y) <= ROBOT_HALF_CELLS + OBSTACLE_HALF_CELLS + MINIMUM_ALLOWED_DISTANCE_BETWEEN_CAR_AND_OBSTACLE_CELLS:
+        #         return TOO_CLOSE_PENALTY
 
         return 0
     
-    # def get_arc_points_from_endpoints(
-    #     self,
-    #     start_x, start_y,
-    #     end_x, end_y,
-    #     start_dir,
-    #     radius=TURN_RADIUS,
-    #     steps=20
-    # ):
-    #     """
-    #     Generate an arc of a quadrant of a circle given:
-    #     - start position
-    #     - end position
-    #     - start direction
-    #     - radius
-
-    #     Assumes axis-aligned grid and exact quarter-circle motion.
-    #     """
-
-    #     dx = end_x - start_x
-    #     dy = end_y - start_y
-
-    #     # Sanity check: must be a quarter circle
-    #     if abs(dx) != radius or abs(dy) != radius:
-    #         raise ValueError("End point does not form a 90° arc with given radius")
-
-    #     # Determine arc center candidates
-    #     if start_dir == Direction.NORTH:
-    #         candidates = [
-    #             (start_x + radius, start_y),  # right turn
-    #             (start_x - radius, start_y),  # left turn
-    #         ]
-    #     elif start_dir == Direction.SOUTH:
-    #         candidates = [
-    #             (start_x - radius, start_y),
-    #             (start_x + radius, start_y),
-    #         ]
-    #     elif start_dir == Direction.EAST:
-    #         candidates = [
-    #             (start_x, start_y - radius),
-    #             (start_x, start_y + radius),
-    #         ]
-    #     elif start_dir == Direction.WEST:
-    #         candidates = [
-    #             (start_x, start_y + radius),
-    #             (start_x, start_y - radius),
-    #         ]
-    #     else:
-    #         raise ValueError("Invalid start direction")
-
-    #     # Pick the center that places both start and end on the circle
-    #     cx = cy = None
-    #     for cxx, cyy in candidates:
-    #         if (
-    #             abs((start_x - cxx)**2 + (start_y - cyy)**2 - radius**2) < 1e-6 and
-    #             abs((end_x - cxx)**2 + (end_y - cyy)**2 - radius**2) < 1e-6
-    #         ):
-    #             cx, cy = cxx, cyy
-    #             break
-
-    #     if cx is None:
-    #         raise RuntimeError("No valid arc center found")
-
-    #     # Compute angles
-    #     start_angle = math.atan2(start_y - cy, start_x - cx)
-    #     end_angle   = math.atan2(end_y - cy, end_x - cx)
-
-    #     # Ensure 90° sweep (choose shortest direction)
-    #     delta = end_angle - start_angle
-    #     if delta > math.pi:
-    #         delta -= 2 * math.pi
-    #     elif delta < -math.pi:
-    #         delta += 2 * math.pi
-
-    #     # Generate arc points
-    #     points = []
-    #     for i in range(steps + 1):
-    #         t = i / steps
-    #         angle = start_angle + delta * t
-    #         x = cx + radius * math.cos(angle)
-    #         y = cy + radius * math.sin(angle)
-    #         points.append((x, y))
-
-    #     return points
-
-
-    # def is_arc_safe(self, arc_points):
-    #     for x, y in arc_points:
-    #         # floor is safer than round for collision detection
-    #         if not self.grid.reachable(math.floor(x), math.floor(y)):
-    #             return False
-    #     return True
-
+    
     def is_turn_sweep_safe(self, x, y, direction, turn_type, move_type):
         """
         Returns False if any obstacle blocks the turn.
