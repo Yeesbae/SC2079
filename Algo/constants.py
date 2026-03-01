@@ -48,6 +48,7 @@ ROBOT_HALF_CELLS = ROBOT_SIZE_CELLS // 2   # = 2
 OBSTACLE_SIZE_CM = 10
 OBSTACLE_SIZE_CELLS = (OBSTACLE_SIZE_CM // CELL_SIZE_CM)
 OBSTACLE_HALF_CELLS = OBSTACLE_SIZE_CELLS // 2  # = 1
+OBSTACLE_INFLATION_CELLS = 1 # Inflate an edge of a obstacle by how many cells
 
 
 # =====================

@@ -1,6 +1,6 @@
 from .Cell import CellState
 from typing import List
-from constants import Direction, ROBOT_HALF_CELLS, OBSTACLE_SIZE_CELLS
+from constants import Direction, ROBOT_HALF_CELLS, OBSTACLE_SIZE_CELLS, OBSTACLE_INFLATION_CELLS
 from .Obstacle import Obstacle
 from Util.helper import overlap
 
@@ -92,10 +92,10 @@ class Grid:
         
         for ob in self.obstacles:
             ob_coor = (
-                (ob.x,                       ob.y + OBSTACLE_SIZE_CELLS),
-                (ob.x + OBSTACLE_SIZE_CELLS, ob.y + OBSTACLE_SIZE_CELLS),
-                (ob.x,                       ob.y                      ),
-                (ob.x + OBSTACLE_SIZE_CELLS, ob.y                      ),
+                (ob.x                       - OBSTACLE_INFLATION_CELLS, ob.y + OBSTACLE_SIZE_CELLS + OBSTACLE_INFLATION_CELLS),
+                (ob.x + OBSTACLE_SIZE_CELLS + OBSTACLE_INFLATION_CELLS, ob.y + OBSTACLE_SIZE_CELLS + OBSTACLE_INFLATION_CELLS),
+                (ob.x                       - OBSTACLE_INFLATION_CELLS, ob.y - OBSTACLE_INFLATION_CELLS),
+                (ob.x + OBSTACLE_SIZE_CELLS + OBSTACLE_INFLATION_CELLS, ob.y - OBSTACLE_INFLATION_CELLS),
             )
 
             if (overlap(target_robot_coor, ob_coor)):

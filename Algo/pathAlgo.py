@@ -7,9 +7,8 @@ from Entities.Bot import Robot
 from Entities.Cell import CellState
 from Entities.Obstacle import Obstacle
 from Entities.Grid import Grid
-from constants import Direction, MOVE_DIRECTION, TURN_FACTOR, NORTH_LEFT_MASK, TURN_RADIUS, TOO_CLOSE_PENALTY, SMALL_TURN, ROBOT_HALF_CELLS, OBSTACLE_HALF_CELLS, MINIMUM_ALLOWED_DISTANCE_BETWEEN_CAR_AND_OBSTACLE_CELLS
+from constants import Direction, MOVE_DIRECTION, TURN_FACTOR, NORTH_LEFT_MASK, TURN_RADIUS, SMALL_TURN
 from python_tsp.exact import solve_tsp_dynamic_programming
-
 
 turn_wrt_big_turns = [[0 * TURN_RADIUS, 0 * TURN_RADIUS], SMALL_TURN]
 
@@ -114,81 +113,6 @@ class MazeSolver:
                 counter += 1
 
 
-    # def perform_turn(self, turn_instruction: str, max_reverse_steps=10):
-    #     """
-    #     Compute a safe 90° turn (LEFT or RIGHT) as a full path.
-    #     If turn is blocked, reverse step by step until a turn is possible.
-    #     Returns: List[CellState] representing the maneuver
-    #     """
-    #     start_state = self.robot.get_start_state()
-    #     target_dir = self.get_target_direction(start_state.direction, turn_instruction)
-
-    #     path = []
-    #     states_to_try = [(start_state, 0)]  # tuple of (state, reverse_steps_done)
-    #     visited = set()
-
-    #     while states_to_try:
-    #         state, reverse_steps = states_to_try.pop(0)
-    #         if (state.x, state.y, state.direction) in visited:
-    #             continue
-    #         visited.add((state.x, state.y, state.direction))
-
-    #         # 1️⃣ Try turning in place
-    #         neighbors = self.get_neighbors(state.x, state.y, state.direction)
-    #         for nx, ny, new_dir, _ in neighbors:
-    #             if new_dir == target_dir:
-    #                 # Turn possible, return full path
-    #                 turn_path = path + [CellState(nx, ny, new_dir)]
-    #                 return turn_path
-
-    #         # 2️⃣ If turn blocked, reverse one step if allowed
-    #         if reverse_steps < max_reverse_steps:
-    #             reversed_state = self.try_reverse_one_step(state)
-    #             if reversed_state:
-    #                 path.append(reversed_state)
-    #                 states_to_try.append((reversed_state, reverse_steps + 1))
-
-    #     raise RuntimeError("Could not find safe turn path after reversing.")
-
-
-    def get_target_direction(self, current_dir, instruction):
-        if instruction == "LEFT":
-            return {
-                Direction.NORTH: Direction.WEST,
-                Direction.WEST: Direction.SOUTH,
-                Direction.SOUTH: Direction.EAST,
-                Direction.EAST: Direction.NORTH
-            }[current_dir]
-
-        elif instruction == "RIGHT":
-            return {
-                Direction.NORTH: Direction.EAST,
-                Direction.EAST: Direction.SOUTH,
-                Direction.SOUTH: Direction.WEST,
-                Direction.WEST: Direction.NORTH
-            }[current_dir]
-
-
-    # def try_reverse_one_step(self, state: CellState):
-    #     """
-    #     Reverse 1 grid step safely.
-    #     Returns new CellState or None if blocked.
-    #     """
-
-    #     for dx, dy, md in MOVE_DIRECTION:
-    #         if md == state.direction:
-    #             back_x = state.x - dx
-    #             back_y = state.y - dy
-
-    #             if self.grid.reachable(back_x, back_y):
-    #                 return CellState(back_x, back_y, state.direction)
-
-    #     return None
-
-
-    def reset_obstacles(self):
-        self.grid.reset_obstacles()
-
     @staticmethod
     def compute_coord_distance(x1: int, y1: int, x2: int, y2: int, level=1):
         """Compute the L-n distance between two coordinates
@@ -226,24 +150,6 @@ class MazeSolver:
         """
         return MazeSolver.compute_coord_distance(start_state.x, start_state.y, end_state.x, end_state.y, level)
 
-    @staticmethod
-    def get_visit_options(n):
-        """Generate all possible n-digit binary strings
-
-        Args:
-            n (int): number of digits in binary string to generate
-
-        Returns:
-            List: list of all possible n-digit binary strings
-        """
-        s = []
-        l = bin(2 ** n - 1).count('1')
-
-        for i in range(2 ** n):
-            s.append(bin(i)[2:].zfill(l))
-
-        s.sort(key=lambda x: x.count('1'), reverse=True)
-        return s
 
     def get_optimal_order_dp(self, retrying):
         timings = {}
@@ -349,21 +255,6 @@ class MazeSolver:
         return optimal_path, total_cost
 
 
-    @staticmethod
-    def generate_combination(view_positions, index, current, result, iteration_left):
-        if index == len(view_positions):
-            result.append(current[:])
-            return
-
-        if iteration_left[0] == 0:
-            return
-
-        iteration_left[0] -= 1
-        for j in range(len(view_positions[index])):
-            current.append(j)
-            MazeSolver.generate_combination(view_positions, index + 1, current, result, iteration_left)
-            current.pop()
-
     def get_safe_cost(self, x, y):
         """Get the safe cost of a particular x,y coordinate wrt obstacles that are exactly 2 units away from it in both x and y directions
 
@@ -374,10 +265,6 @@ class MazeSolver:
         Returns:
             int: safe cost
         """
-        # for ob in self.grid.obstacles:
-        #     if abs(ob.x + 1 - x) <= ROBOT_HALF_CELLS + OBSTACLE_HALF_CELLS + MINIMUM_ALLOWED_DISTANCE_BETWEEN_CAR_AND_OBSTACLE_CELLS or abs(ob.y + 1 - y) <= ROBOT_HALF_CELLS + OBSTACLE_HALF_CELLS + MINIMUM_ALLOWED_DISTANCE_BETWEEN_CAR_AND_OBSTACLE_CELLS:
-        #         return TOO_CLOSE_PENALTY
-
         return 0
     
     
@@ -475,58 +362,6 @@ class MazeSolver:
                     
         return neighbors
     
-
-    # def get_path_to_parking(
-    #     self,
-    #     parking_x: int,
-    #     parking_y: int,
-    #     parking_direction: Direction = None
-    # ) -> list[CellState]:
-    #     """
-    #     Compute the optimal path from current robot position to the parking lot.
-
-    #     Args:
-    #         parking_x (int): target x-coordinate of parking spot
-    #         parking_y (int): target y-coordinate of parking spot
-    #         parking_direction (Direction, optional): desired facing at parking. 
-    #                                                 Defaults to None (any direction).
-
-    #     Returns:
-    #         List[CellState]: full path from current robot state to parking
-    #     """
-    #     start_state = self.robot.get_start_state()
-        
-    #     # Create parking CellState
-    #     if parking_direction is None:
-    #         # If direction not specified, allow any direction (try all 4)
-    #         candidate_directions = [Direction.NORTH, Direction.SOUTH, Direction.EAST, Direction.WEST]
-    #     else:
-    #         candidate_directions = [parking_direction]
-
-    #     best_path = None
-    #     best_cost = float('inf')
-
-    #     for dir_candidate in candidate_directions:
-    #         parking_state = CellState(parking_x, parking_y, dir_candidate)
-            
-    #         # Generate path cost table for this start→goal
-    #         self.path_cost_generator([start_state, parking_state])
-
-    #         if (start_state, parking_state) not in self.cost_table:
-    #             continue
-
-    #         cost = self.cost_table[(start_state, parking_state)]
-    #         path = self.path_table[(start_state, parking_state)]
-
-    #         if cost < best_cost:
-    #             best_cost = cost
-    #             best_path = [CellState(x, y, d) for x, y, d in path]
-
-    #     if best_path is None:
-    #         raise RuntimeError("No valid path to parking found!")
-
-    #     return best_path
-
 
     def path_cost_generator(self, states: List[CellState]):
         """Generate the path cost between the input states and update the tables accordingly

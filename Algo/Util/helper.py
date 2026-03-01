@@ -239,45 +239,6 @@ def command_generator(states, obstacles):
 
     return compressed_commands
 
-# def overlap(rect1: tuple, rect2: tuple):
-#     """
-#     Given 2 sets of 4 corner coordinates of 2 rectangles,
-#     Calculate if both coordinates overlaps
-#     """
-#     def get_axes(rect):
-#         axes = []
-#         for i in range(4):
-#             p1 = rect[i]
-#             p2 = rect[(i + 1) % 4]
-
-#             # Edge vector
-#             edge = (p2[0] - p1[0], p2[1] - p1[1])
-
-#             # Perpendicular vector (normal axis)
-#             normal = (-edge[1], edge[0])
-
-#             # Normalize (optional but cleaner)
-#             length = math.hypot(normal[0], normal[1])
-#             axes.append((normal[0] / length, normal[1] / length))
-
-#         return axes[:2]  # only 2 unique axes per rectangle
-
-#     def project(rect, axis):
-#         dots = [point[0] * axis[0] + point[1] * axis[1] for point in rect]
-#         return min(dots), max(dots)
-
-#     axes = get_axes(rect1) + get_axes(rect2)
-
-#     for axis in axes:
-#         min1, max1 = project(rect1, axis)
-#         min2, max2 = project(rect2, axis)
-
-#         # If projections don't overlap, rectangles don't overlap
-#         if max1 < min2 or max2 < min1:
-#             return False
-
-#     return True
-
 def overlap(r1: tuple, r2: tuple):
     # Rectangle 1 bounds
     min_x1 = r1[0][0]  # top-left x
