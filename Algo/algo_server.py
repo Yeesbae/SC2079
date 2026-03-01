@@ -84,12 +84,13 @@ class AlgoServer:
 
                     # Calculate path
                     path = self._calculate_path(arena_data)
-                    stm_commands = path_to_stm_commands(path)
+                    # stm_commands = path_to_stm_commands(path)
 
                     # Send path back
-                    path_json = json.dumps(stm_commands)
+                    # path_json = json.dumps(stm_commands)
+                    path_json = json.dumps(path)
                     conn.send(path_json.encode('utf-8'))
-                    print(f"[AlgoServer] Sent STM commands to {addr}")
+                    print(f"[AlgoServer] Sent path to {addr}")
 
                 except json.JSONDecodeError:
                     print(f"[AlgoServer] Invalid JSON received from {addr}")

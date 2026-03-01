@@ -6,23 +6,35 @@ from visualizer import MazeVisualizer
 from Util.helper import path_to_stm_commands
 
 def task_1():
-    # Start robot at (2, 2) facing NORTH
+    # Start robot at (3, 3) facing NORTH
     solver = MazeSolver(size_x=ARENA_WIDTH, size_y=ARENA_HEIGHT, robot_x=3, robot_y=3, robot_direction=Direction.NORTH)
     
+    # """5 Obstacles: Test Case 1"""
     # solver.add_obstacle(x=6,  y=6,  direction=Direction.NORTH, obstacle_id=1)
     # solver.add_obstacle(x=30, y=6,  direction=Direction.WEST,  obstacle_id=2)
     # solver.add_obstacle(x=6,  y=30, direction=Direction.EAST,  obstacle_id=3)
     # solver.add_obstacle(x=30, y=30, direction=Direction.SOUTH, obstacle_id=4)
     # solver.add_obstacle(x=18, y=18, direction=Direction.WEST,  obstacle_id=5)
 
-    solver.add_obstacle(x=2,  y=15,  direction=Direction.SOUTH, obstacle_id=1)
-    solver.add_obstacle(x=16, y=4,  direction=Direction.EAST,  obstacle_id=2)
-    solver.add_obstacle(x=34, y=4,  direction=Direction.NORTH, obstacle_id=3)
-    solver.add_obstacle(x=29, y=16, direction=Direction.NORTH,  obstacle_id=4)
-    solver.add_obstacle(x=13, y=24, direction=Direction.EAST, obstacle_id=5)
-    solver.add_obstacle(x=4, y=35, direction=Direction.SOUTH,  obstacle_id=6)
-    solver.add_obstacle(x=18, y=35, direction=Direction.EAST, obstacle_id=7)
-    solver.add_obstacle(x=34, y=35, direction=Direction.WEST,  obstacle_id=8)
+    # """8 Obstacles: Test Case 1"""
+    # solver.add_obstacle(x=2,  y=15,  direction=Direction.SOUTH, obstacle_id=1)
+    # solver.add_obstacle(x=16, y=4,  direction=Direction.EAST,  obstacle_id=2)
+    # solver.add_obstacle(x=34, y=4,  direction=Direction.NORTH, obstacle_id=3)
+    # solver.add_obstacle(x=29, y=16, direction=Direction.NORTH,  obstacle_id=4)
+    # solver.add_obstacle(x=13, y=24, direction=Direction.EAST, obstacle_id=5)
+    # solver.add_obstacle(x=4, y=35, direction=Direction.SOUTH,  obstacle_id=6)
+    # solver.add_obstacle(x=18, y=35, direction=Direction.EAST, obstacle_id=7)
+    # solver.add_obstacle(x=34, y=35, direction=Direction.WEST,  obstacle_id=8)
+
+    """8 Obstacles: Test Case 2"""
+    solver.add_obstacle(x=3,  y=15,  direction=Direction.SOUTH, obstacle_id=1)
+    solver.add_obstacle(x=35, y=3,  direction=Direction.NORTH,  obstacle_id=2)
+    solver.add_obstacle(x=19, y=18,  direction=Direction.EAST, obstacle_id=3)
+    solver.add_obstacle(x=19, y=23, direction=Direction.EAST,  obstacle_id=4)
+    solver.add_obstacle(x=8, y=30, direction=Direction.EAST, obstacle_id=5)
+    solver.add_obstacle(x=3, y=35, direction=Direction.SOUTH,  obstacle_id=6)
+    solver.add_obstacle(x=31, y=31, direction=Direction.SOUTH, obstacle_id=7)
+    solver.add_obstacle(x=36, y=36, direction=Direction.SOUTH,  obstacle_id=8)
 
     # 5 Obs around 10.51 ~ 11.63 seconds
     # 8 Obs around 40.41 ~ 51.46 seconds
