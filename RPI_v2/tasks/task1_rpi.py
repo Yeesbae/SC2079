@@ -240,21 +240,29 @@ class Task1RPI:
         for waypoint in path:
             self.path_queue.put(waypoint)
     
-    def move_forward(self, distance_cm: int = 10):
-        """Move robot forward"""
+    def move_forward(self, distance_cm: int = 5):
+        """Move robot straight forward"""
         self.stm32.forward(distance_cm)
     
-    def move_backward(self, distance_cm: int = 10):
-        """Move robot backward"""
+    def move_backward(self, distance_cm: int = 5):
+        """Move robot straight backward"""
         self.stm32.backward(distance_cm)
     
-    def turn_left(self, angle: int = 90):
-        """Turn robot left"""
-        self.stm32.turn_left(angle)
+    def turn_left_forward(self, angle: int = 90):
+        """Turn robot left forward"""
+        self.stm32.turn_left_forward(angle)
     
-    def turn_right(self, angle: int = 90):
-        """Turn robot right"""
-        self.stm32.turn_right(angle)
+    def turn_right_forward(self, angle: int = 90):
+        """Turn robot right forward"""
+        self.stm32.turn_right_forward(angle)
+
+    def turn_left_backward(self, angle: int = 90):
+        """Turn robot left backward"""
+        self.stm32.turn_left_backward(angle)
+    
+    def turn_right_backward(self, angle: int = 90):
+        """Turn robot right backward"""
+        self.stm32.turn_right_backward(angle)
     
     def send_command(self, command: str) -> Optional[str]:
         """
