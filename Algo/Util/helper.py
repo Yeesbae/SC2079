@@ -259,148 +259,64 @@ def overlap(r1: tuple, r2: tuple):
         max_y2 < min_y1
     )
 
-def capture_image():
-    """Simulate image capture from robot's camera
-
-    Returns:
-        str: either 'LEFT' or 'RIGHT'
-    """
-    result = random.choice(["LEFT", "RIGHT"])
-    print(f"Captured image indicates turn: {result}")
-    return result
-
 @staticmethod
-def path_to_stm_commands(path_list):
-        """Convert a list of waypoint dicts into STM32 motor commands.
+def compress_path(path):
+    if not path:
+        return []
 
-        The argument is the same structure returned by :meth:`_calculate_path`:
-        a list of ``{'x':..., 'y':..., 'd':...}`` dictionaries.  Movement is
-        interpreted as follows:
+    compressed = [path[0]]
+    prev = path[0]
+    current_move = 0  # 0 unset, 1 forward, -1 backward
 
-        * each grid-cell difference corresponds to 5 cm of motion;
-        * consecutive straight steps in the same direction are merged into a
-          single ``S<F|B><distance>`` command (three-digit distance in cm);
-        * any step where both ``x`` and ``y`` change is treated as a 90° turn.
-          The turn direction is determined from the old/new orientation, and
-          whether the robot was moving forward or in reverse at the time.
-          Commands look like ``RF090``, ``LB090`` etc.
+    for i in range(1, len(path)):
+        curr = path[i]
 
-        The helper is deliberately a static method so it can be invoked without
-        needing an ``AlgoServer`` instance.  It does **not** modify the input
-        list.
-        """
-        if not path_list:
-            return []
+        # -------- TURN --------
+        if prev.direction != curr.direction:
+            # close previous segment
+            if compressed[-1] is not prev:
+                compressed.append(prev)
 
-        commands = []
+            # turn is its own segment
+            compressed.append(curr)
 
-        # normalize entries to dictionaries so we can handle CellState or dict
-        def to_dict(elem):
-            if isinstance(elem, dict):
-                return elem
-            # fall back to attribute access
-            x = getattr(elem, 'x', None)
-            y = getattr(elem, 'y', None)
-            d = None
-            if hasattr(elem, 'direction'):
-                d = getattr(elem.direction, 'value', None)
-            elif hasattr(elem, 'd'):
-                d = getattr(elem, 'd')
-            return {'x': x, 'y': y, 'd': d}
+            current_move = 0
+            prev = curr
+            continue
 
-        prev = to_dict(path_list[0])
-        current_dir = Direction(prev['d'])
+        # -------- SCREENSHOT --------
+        if prev.screenshot_id != -1:
+            if compressed[-1] is not prev:
+                compressed.append(prev)
 
-        move_dir = None  # 'F' or 'B'
-        move_dist = 0
+            current_move = 0
+            prev = curr
+            continue
 
-        # unit vectors for each direction (used to determine forward/back)
-        vector_map = {
-            Direction.NORTH: (0, 1),
-            Direction.SOUTH: (0, -1),
-            Direction.EAST: (1, 0),
-            Direction.WEST: (-1, 0),
-        }
+        # -------- STRAIGHT --------
+        dx = curr.x - prev.x
+        dy = curr.y - prev.y
 
-        for cell_raw in path_list[1:]:
-            cell = to_dict(cell_raw)
-            dx = cell['x'] - prev['x']
-            dy = cell['y'] - prev['y']
-            new_dir = Direction(cell.get('d', current_dir.value))
+        if prev.direction == Direction.NORTH:
+            move = 1 if dy > 0 else -1
+        elif prev.direction == Direction.SOUTH:
+            move = 1 if dy < 0 else -1
+        elif prev.direction == Direction.EAST:
+            move = 1 if dx > 0 else -1
+        else:  # WEST
+            move = 1 if dx < 0 else -1
 
-            # turning event when both coordinates change
-            if dx != 0 and dy != 0:
-                # flush any ongoing straight move
-                if move_dist:
-                    commands.append(f"S{move_dir}{move_dist:03d}")
-                    move_dist = 0
-                    move_dir = None
+        if current_move == 0:
+            current_move = move
+        elif move != current_move:
+            if compressed[-1] is not prev:
+                compressed.append(prev)
+            current_move = move
 
-                # determine left/right based on orientation change
-                cur_idx = current_dir.value // 2
-                new_idx = new_dir.value // 2
+        prev = curr
 
-                diff = (new_idx - cur_idx) % 4
+    # close final segment
+    if compressed[-1] is not path[-1]:
+        compressed.append(path[-1])
 
-                if diff == 1:
-                    turn_lr = 'R'
-                elif diff == 3:
-                    turn_lr = 'L'
-                elif diff == 2:
-                    # 180° — shouldn't normally happen in your planner
-                    turn_lr = 'R'
-                else:
-                    turn_lr = 'R'
-
-                # was movement forward or backward relative to previous dir?
-                forward = (dx * vector_map[current_dir][0]
-                           + dy * vector_map[current_dir][1]) > 0
-                turn_fb = 'F' if forward else 'B'
-                commands.append(f"{turn_lr}{turn_fb}090")
-                current_dir = new_dir
-            else:
-                # straight motion along one axis
-                if dx > 0:
-                    abs_dir = Direction.EAST
-                elif dx < 0:
-                    abs_dir = Direction.WEST
-                elif dy > 0:
-                    abs_dir = Direction.NORTH
-                elif dy < 0:
-                    abs_dir = Direction.SOUTH
-                else:
-                    abs_dir = current_dir
-
-                # determine forward/back relative to orientation
-                if abs_dir == current_dir:
-                    fb = 'F'
-                elif abs_dir == {
-                    Direction.NORTH: Direction.SOUTH,
-                    Direction.SOUTH: Direction.NORTH,
-                    Direction.EAST: Direction.WEST,
-                    Direction.WEST: Direction.EAST,
-                }[current_dir]:
-                    fb = 'B'
-                else:
-                    # orientation mismatch (shouldn't happen)
-                    fb = 'F'
-
-                # aggregate distance (5 cm per grid unit)
-                step_cm = 5
-                if move_dist and fb == move_dir:
-                    move_dist += step_cm
-                else:
-                    if move_dist:
-                        commands.append(f"S{move_dir}{move_dist:03d}")
-                    move_dir = fb
-                    move_dist = step_cm
-
-                current_dir = new_dir
-
-            prev = cell
-
-        # flush any remaining straight move after loop
-        if move_dist:
-            commands.append(f"S{move_dir}{move_dist:03d}")
-
-        return commands
+    return compressed
