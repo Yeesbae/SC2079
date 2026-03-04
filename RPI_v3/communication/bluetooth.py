@@ -249,8 +249,11 @@ class BluetoothHandler:
             return False
             
         try:
+            # Add newline if not present (Android apps typically expect this)
+            if not message.endswith('\n'):
+                message = message + '\n'
             self.client_socket.send(message.encode("utf-8"))
-            print(f"[Bluetooth] Sent: {message}")
+            print(f"[Bluetooth] Sent: {message.strip()}")
             return True
         except Exception as e:
             print(f"[Bluetooth] Send error: {e}")
