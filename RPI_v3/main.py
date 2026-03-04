@@ -834,6 +834,10 @@ def run_full_integration_test():
     print("\n" + "=" * 60)
     print("FULL INTEGRATION TEST (BT + ALGO + IMG REC)")
     print("=" * 60)
+    print("\nNote: If Bluetooth fails to connect:")
+    print("  Run: sudo rfcomm release all")
+    print("  Or restart bluetooth: sudo systemctl restart bluetooth")
+    print("=" * 60)
     
     config = get_config()
     
@@ -902,10 +906,13 @@ def run_full_integration_test():
                         print(">> ", end='', flush=True)
                 else:
                     time.sleep(1)
-            except:
+            except Exception as e:
                 if running:
+                    print(f"\n[AlgoPC Thread Error] {e}")
+                    print(">> ", end='', flush=True)
                     time.sleep(1)
-                break
+                else:
+                    break
     
     def bluetooth_connection_thread():
         """Handle Bluetooth connections"""
@@ -919,10 +926,13 @@ def run_full_integration_test():
                         print(">> ", end='', flush=True)
                 else:
                     time.sleep(1)
-            except:
+            except Exception as e:
                 if running:
+                    print(f"\n[Bluetooth Thread Error] {e}")
+                    print(">> ", end='', flush=True)
                     time.sleep(1)
-                break
+                else:
+                    break
     
     def receive_bluetooth_thread():
         """Receive from BT, forward obstacle coords to Algo PC"""
