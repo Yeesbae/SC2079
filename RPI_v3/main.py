@@ -75,11 +75,12 @@ def bluetooth_process(
             
         except Exception as e:
             print(f"[BT Process] Error: {e}")
-            bt.disconnect()
+            # Keep server alive for reconnection
+            bt.disconnect(keep_server=True)
             time.sleep(1)
     
-    # Cleanup
-    bt.disconnect()
+    # Cleanup - shut down server completely
+    bt.disconnect(keep_server=False)
     print("[BT Process] Stopped")
 
 
@@ -177,37 +178,49 @@ def algorithm_process(
     
     print("[Algo Process] Starting...")
     
-    # Initialize Algorithm PC connection
+    # Initialize Algorithm PC server
     algo = AlgoPC()
-    algo.connect()
+    if not algo.start_server():
+        print("[Algo Process] Failed to start server")
+        return
     
+    # Wait for Algorithm PC to connect (with auto-reconnect)
     while not stop_event.is_set():
         try:
+            # Auto-reconnect logic
+            if not algo.is_connected():
+                print("[Algo Process] Waiting for Algorithm PC to connect...")
+                if not algo.wait_for_connection(timeout=10.0):
+                    time.sleep(2)  # Retry delay
+                    continue
+            
             # Receive obstacle coords from Bluetooth (from Android)
             if not from_bt_queue.empty():
                 coords = from_bt_queue.get_nowait()
                 print(f"[Algo Process] Received coords: {coords}")
                 
                 # Send coords to Algorithm PC (as JSON if dict, else string)
-                if isinstance(coords, dict):
-                    algo.send_json(coords)
-                else:
-                    algo.send(str(coords))
-                
-                # Receive path from Algorithm PC (with timeout)
-                path = algo.receive(timeout=5.0)
-                if path:
-                    print(f"[Algo Process] Received path: {path}")
-                    to_task_queue.put(path)
+                if algo.is_connected():
+                    if isinstance(coords, dict):
+                        algo.send_json(coords)
+                    else:
+                        algo.send(str(coords))
+                    
+                    # Receive path from Algorithm PC (with timeout)
+                    path = algo.receive(timeout=5.0)
+                    if path:
+                        print(f"[Algo Process] Received path: {path}")
+                        to_task_queue.put(path)
             
             stop_event.wait(timeout=0.1)
             
         except Exception as e:
             print(f"[Algo Process] Error: {e}")
+            algo.disconnect(keep_server=True)
             time.sleep(1)
     
     # Cleanup
-    algo.disconnect()
+    algo.disconnect(keep_server=False)
     print("[Algo Process] Stopped")
 
 
@@ -239,25 +252,57 @@ def run_bluetooth_test():
     print("  status      - Show connection status")
     print("  q           - Quit test")
     print("=" * 60)
+    print("Note: Auto-reconnects when client disconnects")
+    print("=" * 60)
     
     running = True
+    
+    def bluetooth_connection_thread():
+        """Background thread to handle Bluetooth reconnections."""
+        while running:
+            try:
+                if not bt.is_connected():
+                    time.sleep(2)  # Wait a bit before trying to reconnect
+                    if running and not bt.is_connected():
+                        print("\n[Bluetooth] Attempting reconnection...")
+                        print(">> ", end='', flush=True)
+                        if bt.connect():
+                            print("\n[Bluetooth] ✓ Client reconnected!")
+                            print(">> ", end='', flush=True)
+                else:
+                    time.sleep(1)
+            except:
+                if running:
+                    time.sleep(1)
+                    continue
+                break
     
     def receive_thread():
         """Background thread to receive messages"""
         while running:
             try:
+                if not bt.is_connected():
+                    time.sleep(0.5)
+                    continue
                 msg = bt.receive_nonblocking(timeout=0.1)
                 if msg:
                     print(f"\n[RECEIVED from Android] >>> {msg}")
                     # Auto-echo to confirm receipt
                     bt.send(f"RPi ACK: {msg}")
                     print(">> ", end='', flush=True)
+                elif not bt.is_connected():
+                    # Connection lost
+                    print("\n[DISCONNECTED] Client disconnected - will auto-reconnect")
+                    print(">> ", end='', flush=True)
             except:
                 if running:
                     continue
                 break
     
-    # Start receive thread
+    # Start background threads
+    bt_conn_thread = threading.Thread(target=bluetooth_connection_thread, daemon=True)
+    bt_conn_thread.start()
+    
     recv_thread = threading.Thread(target=receive_thread, daemon=True)
     recv_thread.start()
     
@@ -268,17 +313,21 @@ def run_bluetooth_test():
             if cmd.lower() == 'q':
                 break
             elif cmd.lower() == 'status':
-                status = "Connected" if bt.is_connected() else "Disconnected"
+                status = "Connected" if bt.is_connected() else "Disconnected (reconnecting...)"
                 print(f"Status: {status}")
             elif cmd.lower().startswith('send '):
                 msg = cmd[5:]
-                if bt.send(msg):
+                if not bt.is_connected():
+                    print("[WARN] Not connected. Message will not be sent.")
+                elif bt.send(msg):
                     print(f"[SENT to Android] <<< {msg}")
                 else:
                     print("[ERROR] Failed to send")
             elif cmd:
                 # Treat any other input as a message to send
-                if bt.send(cmd):
+                if not bt.is_connected():
+                    print("[WARN] Not connected. Message will not be sent.")
+                elif bt.send(cmd):
                     print(f"[SENT to Android] <<< {cmd}")
                 else:
                     print("[ERROR] Failed to send")
@@ -287,8 +336,478 @@ def run_bluetooth_test():
         print("\n\nInterrupted")
     finally:
         running = False
-        bt.disconnect()
+        bt.disconnect(keep_server=False)
         print("\n[Test] Bluetooth test ended")
+
+
+# =============================================================================
+# Bluetooth + STM32 Test Mode (Mode 3)
+# =============================================================================
+def run_bluetooth_stm32_test():
+    """
+    Mode 3: Bluetooth + STM32 bridge test.
+    - Receives commands from Android/PC via Bluetooth
+    - Forwards them directly to STM32 over serial
+    - Sends STM32 response back via Bluetooth
+    - Keyboard input can also send commands manually
+    """
+    from communication.bluetooth import BluetoothHandler
+    from communication.stm32 import STM32
+    import re
+
+    print("\n" + "=" * 60)
+    print("BLUETOOTH + STM32 BRIDGE TEST")
+    print("=" * 60)
+
+    # --- Connect STM32 ---
+    stm = STM32()
+    ports_to_try = ["/dev/ttyUSB0", "/dev/ttyACM0", "/dev/ttyAMA0"]
+    stm32_ok = False
+    for port in ports_to_try:
+        stm.port = port
+        if stm.connect():
+            stm32_ok = True
+            break
+
+    if not stm32_ok:
+        print("[Mode 3] ⚠ STM32 not connected. Commands will be echoed only.")
+        print("[Mode 3]   Check USB cable and run: ls /dev/tty*")
+
+    # --- Initialize Bluetooth (non-blocking) ---
+    bt = BluetoothHandler()
+    
+    print("\n[Mode 3] Starting Bluetooth server in background...")
+    print("=" * 60)
+    print("You can start sending STM32 commands immediately.")
+    print("Bluetooth will connect when a client connects.")
+    print("=" * 60)
+    print("Keyboard commands:")
+    print("  send <cmd>  - Send STM32 command manually (e.g. send SF050)")
+    print("  msg <text>  - Send message to PC/Android (e.g. msg Hello)")
+    print("  status      - Show connection status")
+    print("  q           - Quit")
+    print("=" * 60)
+
+    stm32_cmd_pattern = re.compile(r'^([A-Z]{2}\d{3}|STOP)$', re.IGNORECASE)
+    running = True
+
+    def bluetooth_connection_thread():
+        """Background thread to handle Bluetooth connections."""
+        while running:
+            try:
+                if not bt.is_connected():
+                    print("\n[Bluetooth] Waiting for client connection...")
+                    print(">> ", end='', flush=True)
+                    if bt.connect():
+                        print("\n[Bluetooth] ✓ Client connected!")
+                        print(">> ", end='', flush=True)
+                else:
+                    time.sleep(1)
+            except:
+                if running:
+                    time.sleep(1)
+                    continue
+                break
+
+    def receive_thread():
+        """Receive from Bluetooth, forward to STM32."""
+        while running:
+            try:
+                if not bt.is_connected():
+                    time.sleep(0.5)
+                    continue
+                msg = bt.receive_nonblocking(timeout=0.1)
+                if msg:
+                    msg = msg.strip()
+                    print(f"\n[BT → RPi] {msg}")
+
+                    if stm32_ok and stm32_cmd_pattern.match(msg.upper()):
+                        # Forward to STM32
+                        sent = stm.send(msg.upper())
+                        response = stm.receive(timeout=2.0) if sent else None
+                        if response:
+                            print(f"[STM32 → RPi] {response}")
+                            bt.send(f"STM32:{response}")
+                            print(f"[RPi → BT] STM32:{response}")
+                        else:
+                            bt.send(f"ACK:{msg.upper()}")
+                            print(f"[RPi → BT] ACK:{msg.upper()}")
+                    else:
+                        # Not a STM32 command — echo back
+                        bt.send(f"RPi ACK: {msg}")
+                        print(f"[RPi → BT] RPi ACK: {msg}")
+
+                    print(">> ", end='', flush=True)
+                elif not bt.is_connected():
+                    # Connection lost
+                    print("\n[DISCONNECTED] Client disconnected")
+                    print(">> ", end='', flush=True)
+            except:
+                if running:
+                    continue
+                break
+
+    # Start background threads
+    bt_conn_thread = threading.Thread(target=bluetooth_connection_thread, daemon=True)
+    bt_conn_thread.start()
+    
+    recv_thread = threading.Thread(target=receive_thread, daemon=True)
+    recv_thread.start()
+
+    try:
+        while running:
+            cmd = input(">> ").strip()
+
+            if cmd.lower() == 'q':
+                break
+            elif cmd.lower() == 'status':
+                print(f"  Bluetooth : {'Connected' if bt.is_connected() else 'Waiting for connection...'}")
+                print(f"  STM32     : {'Connected' if stm32_ok and stm.connected else 'Not connected'}")
+            elif cmd.lower().startswith('msg '):
+                message = cmd[4:].strip()
+                if not bt.is_connected():
+                    print("[WARN] Bluetooth not connected. Message not sent.")
+                elif bt.send(message):
+                    print(f"[RPi → BT] {message}")
+                else:
+                    print("[ERROR] Failed to send message")
+            elif cmd.lower().startswith('send '):
+                raw_cmd = cmd[5:].strip().upper()
+                if stm32_ok:
+                    # Send to STM32 regardless of Bluetooth status
+                    sent = stm.send(raw_cmd)
+                    response = stm.receive(timeout=10.0) if sent else None
+                    
+                    if response:
+                        print(f"[STM32 → RPi] {response}")
+                        reply = f"STM32:{response}"
+                    else:
+                        reply = f"ACK:{raw_cmd}"
+                    
+                    # Send response over Bluetooth if connected
+                    if bt.is_connected():
+                        bt.send(reply)
+                        print(f"[RPi → BT] {reply}")
+                else:
+                    print("[WARN] STM32 not connected")
+                    # Still send acknowledgment over Bluetooth if connected
+                    if bt.is_connected():
+                        reply = f"ACK:{raw_cmd} (STM32 not connected)"
+                        bt.send(reply)
+                        print(f"[RPi → BT] {reply}")
+            elif cmd:
+                print("Unknown command. Use: send <cmd>, msg <text>, status, q")
+
+    except KeyboardInterrupt:
+        print("\n\nInterrupted")
+    finally:
+        running = False
+        bt.disconnect(keep_server=False)
+        stm.disconnect()
+        print("\n[Test] Bluetooth + STM32 test ended")
+
+
+# =============================================================================
+# Bluetooth + Algorithm PC Bridge Test (Mode 4)
+# =============================================================================
+def run_bluetooth_algo_bridge():
+    """
+    Mode 4: Bluetooth + Algorithm PC bridge.
+    - Receives data from Android/PC via Bluetooth
+    - Forwards to Algorithm PC (connected via RPi AP network)
+    - Receives response from Algorithm PC
+    - Sends response back via Bluetooth
+    """
+    from communication.bluetooth import BluetoothHandler
+    from communication.algo_pc import AlgoPC
+
+    print("\n" + "=" * 60)
+    print("BLUETOOTH + ALGORITHM PC BRIDGE TEST")
+    print("=" * 60)
+
+    # --- Start Algorithm PC server (non-blocking) ---
+    algo = AlgoPC()
+    print("\n[1] Starting Algorithm PC server...")
+    if not algo.start_server():
+        print("[Mode 4] ✗ Failed to start Algorithm PC server.")
+        print("[Mode 4]   Port may already be in use.")
+        return
+    
+    # --- Initialize Bluetooth (non-blocking) ---
+    bt = BluetoothHandler()
+    
+    print("\n[Mode 4] Starting Bluetooth server in background...")
+    print("=" * 60)
+    print("Bluetooth messages will be forwarded to Algorithm PC.")
+    print("Algorithm PC responses will be sent back to Bluetooth.")
+    print("=" * 60)
+    print("Keyboard commands:")
+    print("  msg <text>  - Send message to Bluetooth client")
+    print("  algo <text> - Send message to Algorithm PC")
+    print("  status      - Show connection status")
+    print("  q           - Quit")
+    print("=" * 60)
+
+    running = True
+
+    def algo_connection_thread():
+        """Background thread to handle Algorithm PC connections."""
+        while running:
+            try:
+                if not algo.is_connected():
+                    print("\n[AlgoPC] Waiting for Algorithm PC to connect...")
+                    print(">> ", end='', flush=True)
+                    if algo.wait_for_connection(timeout=60.0):
+                        print("\n[AlgoPC] ✓ Algorithm PC connected!")
+                        print(">> ", end='', flush=True)
+                else:
+                    time.sleep(1)
+            except:
+                if running:
+                    time.sleep(1)
+                    continue
+                break
+
+    def bluetooth_connection_thread():
+        """Background thread to handle Bluetooth connections."""
+        while running:
+            try:
+                if not bt.is_connected():
+                    print("\n[Bluetooth] Waiting for client connection...")
+                    print(">> ", end='', flush=True)
+                    if bt.connect():
+                        print("\n[Bluetooth] ✓ Client connected!")
+                        print(">> ", end='', flush=True)
+                else:
+                    time.sleep(1)
+            except:
+                if running:
+                    time.sleep(1)
+                    continue
+                break
+
+    def receive_bluetooth_thread():
+        """Receive from Bluetooth, forward to Algorithm PC."""
+        while running:
+            try:
+                if not bt.is_connected():
+                    time.sleep(0.5)
+                    continue
+                
+                msg = bt.receive_nonblocking(timeout=0.1)
+                if msg:
+                    msg = msg.strip()
+                    print(f"\n[BT → RPi] {msg}")
+
+                    if algo.is_connected():
+                        # Forward to Algorithm PC
+                        try:
+                            # Try to parse as JSON first
+                            import json
+                            data = json.loads(msg)
+                            algo.send_json(data)
+                            print(f"[RPi → AlgoPC] {msg} (JSON)")
+                        except json.JSONDecodeError:
+                            # Send as plain text
+                            algo.send(msg)
+                            print(f"[RPi → AlgoPC] {msg}")
+                        
+                        # Note: Response from Algo PC will be handled by receive_algopc_thread
+                    else:
+                        # Algorithm PC not connected - just acknowledge
+                        ack = f"ACK:{msg} (AlgoPC not connected)"
+                        bt.send(ack)
+                        print(f"[RPi → BT] {ack}")
+
+                    print(">> ", end='', flush=True)
+                elif not bt.is_connected():
+                    # Connection lost
+                    print("\n[DISCONNECTED] Bluetooth client disconnected")
+                    print(">> ", end='', flush=True)
+            except Exception as e:
+                if running:
+                    print(f"\n[BT Error] {e}")
+                    print(">> ", end='', flush=True)
+                    continue
+                break
+
+    def receive_algopc_thread():
+        """Receive from Algorithm PC, forward to Bluetooth."""
+        while running:
+            try:
+                if not algo.is_connected():
+                    time.sleep(0.5)
+                    continue
+                
+                # Receive message from Algorithm PC (non-blocking with timeout)
+                msg = algo.receive(timeout=0.1)
+                if msg:
+                    msg = msg.strip()
+                    print(f"\n[AlgoPC → RPi] {msg}")
+                    
+                    if bt.is_connected():
+                        # Forward to Bluetooth
+                        bt.send(msg)
+                        print(f"[RPi → BT] {msg}")
+                    else:
+                        print("[RPi] Bluetooth not connected - message not forwarded")
+                    
+                    print(">> ", end='', flush=True)
+                elif not algo.is_connected():
+                    # Connection lost
+                    print("\n[DISCONNECTED] Algorithm PC disconnected")
+                    print(">> ", end='', flush=True)
+                    time.sleep(1)
+                    
+            except Exception as e:
+                if running and algo.is_connected():
+                    # Only log if we're still supposed to be connected
+                    print(f"\n[AlgoPC Error] {e}")
+                    print(">> ", end='', flush=True)
+                time.sleep(0.5)
+
+    # Start background threads
+    algo_conn_thread = threading.Thread(target=algo_connection_thread, daemon=True)
+    algo_conn_thread.start()
+    
+    bt_conn_thread = threading.Thread(target=bluetooth_connection_thread, daemon=True)
+    bt_conn_thread.start()
+    
+    recv_bt_thread = threading.Thread(target=receive_bluetooth_thread, daemon=True)
+    recv_bt_thread.start()
+    
+    recv_algo_thread = threading.Thread(target=receive_algopc_thread, daemon=True)
+    recv_algo_thread.start()
+
+    try:
+        while running:
+            cmd = input(">> ").strip()
+
+            if cmd.lower() == 'q':
+                break
+            elif cmd.lower() == 'status':
+                print(f"  Bluetooth : {'Connected' if bt.is_connected() else 'Waiting for connection...'}")
+                print(f"  AlgoPC    : {'Connected' if algo.is_connected() else 'Waiting for connection...'}")
+            elif cmd.lower().startswith('msg '):
+                message = cmd[4:].strip()
+                if not bt.is_connected():
+                    print("[WARN] Bluetooth not connected. Message not sent.")
+                elif bt.send(message):
+                    print(f"[RPi → BT] {message}")
+                else:
+                    print("[ERROR] Failed to send message")
+            elif cmd.lower().startswith('algo '):
+                message = cmd[5:].strip()
+                if not algo.is_connected():
+                    print("[WARN] Algorithm PC not connected. Message not sent.")
+                else:
+                    try:
+                        algo.send(message)
+                        print(f"[RPi → AlgoPC] {message}")
+                        response = algo.receive(timeout=5.0)
+                        if response:
+                            print(f"[AlgoPC → RPi] {response}")
+                        else:
+                            print("[AlgoPC] No response")
+                    except Exception as e:
+                        print(f"[ERROR] Failed to communicate with AlgoPC: {e}")
+            elif cmd:
+                print("Unknown command. Use: msg <text>, algo <text>, status, q")
+
+    except KeyboardInterrupt:
+        print("\n\nInterrupted")
+    finally:
+        running = False
+        bt.disconnect(keep_server=False)
+        algo.disconnect(keep_server=False)
+        print("\n[Test] Bluetooth + Algorithm PC bridge test ended")
+
+
+# =============================================================================
+# Image Rec PC Communication Test (Mode 5)
+# =============================================================================
+def run_imgrec_pc_test():
+    """
+    Mode 5: Image Recognition PC communication test.
+    - Starts video stream server (UDP) for PC to receive video
+    - Waits for Image Rec PC to connect (TCP)
+    - Receives and prints all detection results from PC
+    - Tests the communication path: RPi → PC (video) and PC → RPi (detections)
+    """
+    from tasks.task5_rpi import Task5RPI
+    from config.config import get_config
+
+    print("\n" + "=" * 60)
+    print("IMAGE RECOGNITION PC COMMUNICATION TEST")
+    print("=" * 60)
+    print("\nThis test will:")
+    print("  1. Start video stream server (UDP)")
+    print("  2. Wait for Image Rec PC to connect (TCP)")
+    print("  3. Print all detection results from PC")
+    print("\nExpected message formats from PC:")
+    print("  - Detection: 'obstacle_id,confidence,image_id'")
+    print("  - No detection: 'NONE'")
+    print("  - Commands: 'SEEN', 'STITCH'")
+    print("\nPress Ctrl+C to stop")
+    print("=" * 60)
+
+    config = get_config()
+    task5 = Task5RPI(config)
+    running = True
+
+    def message_monitor():
+        """Background thread to show live stats"""
+        last_count = 0
+        while running:
+            if task5.message_count > last_count:
+                last_count = task5.message_count
+            time.sleep(2)
+
+    try:
+        # Initialize Task5
+        task5.initialize()
+        
+        if not task5.running:
+            print("\n[Mode 5] Failed to initialize. Exiting.")
+            return
+        
+        # Start monitor thread
+        monitor_thread = threading.Thread(target=message_monitor, daemon=True)
+        monitor_thread.start()
+        
+        print("\n" + "=" * 60)
+        print("Commands:")
+        print("  status  - Show connection and message stats")
+        print("  q       - Quit test")
+        print("=" * 60)
+        print()
+        
+        # Main loop
+        while running:
+            try:
+                cmd = input(">> ").strip().lower()
+                
+                if cmd == 'q':
+                    break
+                elif cmd == 'status':
+                    print(f"\n  PC Connected: {task5.pc.connected}")
+                    print(f"  Messages Received: {task5.message_count}")
+                    print(f"  Last Image: {task5.last_image or 'None'}")
+                    print()
+                elif cmd:
+                    print("Unknown command. Use: status, q")
+                    
+            except EOFError:
+                # Handle case where input is not available (e.g., in background)
+                time.sleep(1)
+                
+    except KeyboardInterrupt:
+        print("\n\n[Mode 5] Interrupted by user")
+    finally:
+        running = False
+        task5.stop()
+        print("\n[Mode 5] Image Rec PC communication test ended")
+        print(f"[Mode 5] Total messages received: {task5.message_count}")
 
 
 # =============================================================================
@@ -477,13 +996,15 @@ def select_run_mode() -> str:
     print("=" * 50)
     print("  1. Full Task Mode (BT + PC + Algorithm)")
     print("  2. Bluetooth Only Test (2-way communication)")
-    print("  3. Run test_bluetooth.py (alternative tester)")
+    print("  3. Bluetooth + STM32 Bridge Test (BT commands → STM32)")
+    print("  4. Bluetooth + Algorithm PC Bridge (BT ↔ RPi ↔ AlgoPC)")
+    print("  5. Image Rec PC Communication Test (RPi ↔ ImgRec PC)")
     
     while True:
-        mode = input("\nSelect mode (1/2/3) >> ").strip()
-        if mode in ['1', '2', '3']:
+        mode = input("\nSelect mode (1/2/3/4/5) >> ").strip()
+        if mode in ['1', '2', '3', '4', '5']:
             return mode
-        print("Please enter 1, 2, or 3")
+        print("Please enter 1, 2, 3, 4, or 5")
 
 
 def select_task() -> int:
@@ -535,6 +1056,13 @@ if __name__ == "__main__":
         run_bluetooth_test()
         
     elif run_mode == '3':
-        # Run external test script
-        import subprocess
-        subprocess.run([sys.executable, "test_bluetooth.py"])
+        # Bluetooth + STM32 Bridge Test
+        run_bluetooth_stm32_test()
+    
+    elif run_mode == '4':
+        # Bluetooth + Algorithm PC Bridge Test
+        run_bluetooth_algo_bridge()
+    
+    elif run_mode == '5':
+        # Image Rec PC Communication Test
+        run_imgrec_pc_test()

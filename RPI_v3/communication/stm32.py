@@ -37,9 +37,18 @@ class STM32:
             self.serial = serial.Serial(
                 port=self.port,
                 baudrate=self.baudrate,
+                bytesize=serial.EIGHTBITS,
+                parity=serial.PARITY_NONE,
+                stopbits=serial.STOPBITS_ONE,
                 timeout=1
             )
             time.sleep(2)  # Wait for STM32 to reset after connection
+            
+            # Clear any boot messages
+            if self.serial.in_waiting > 0:
+                boot_msg = self.serial.read(self.serial.in_waiting)
+                print(f"[STM32] Boot message: {boot_msg.decode('utf-8', errors='ignore').strip()}")
+            
             self.connected = True
             print(f"[STM32] Connected on {self.port} at {self.baudrate} baud")
             return True
@@ -61,7 +70,7 @@ class STM32:
         Send command to STM32
         
         Args:
-            command: Command string (e.g., "FW100", "TR090", "TL090")
+            command: Command string (e.g., "SF050", "RF090", "LF045")
             
         Returns:
             True if sent successfully
@@ -71,12 +80,13 @@ class STM32:
             return False
         
         try:
-            # Add newline terminator if not present
-            if not command.endswith('\n'):
-                command += '\n'
+            # Commands should be exactly 5 bytes, no newline
+            command = command.strip().upper()
             
+            # Send raw bytes without newline
             self.serial.write(command.encode('utf-8'))
-            print(f"[STM32] Sent: {command.strip()}")
+            self.serial.flush()
+            print(f"[STM32] Sent: {command}")
             return True
         except Exception as e:
             print(f"[STM32] Send error: {e}")
@@ -96,11 +106,29 @@ class STM32:
             return None
         
         try:
-            self.serial.timeout = timeout
-            response = self.serial.readline().decode('utf-8').strip()
+            # Clear input buffer first
+            self.serial.reset_input_buffer()
+            
+            # Wait for acknowledgment (single 'A' byte)
+            start_time = time.time()
+            response = ""
+            
+            while time.time() - start_time < timeout:
+                if self.serial.in_waiting > 0:
+                    data = self.serial.read(self.serial.in_waiting)
+                    response += data.decode('utf-8', errors='ignore')
+                    
+                    # Check if we received the acknowledgment
+                    if 'A' in response:
+                        print(f"[STM32] Received: {response.strip()}")
+                        return response.strip()
+                
+                time.sleep(0.01)
+            
+            # Timeout - return whatever we got
             if response:
-                print(f"[STM32] Received: {response}")
-                return response
+                print(f"[STM32] Received (timeout): {response.strip()}")
+                return response.strip()
             return None
         except Exception as e:
             print(f"[STM32] Receive error: {e}")

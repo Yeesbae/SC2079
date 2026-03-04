@@ -6,74 +6,166 @@ from typing import Optional, Dict, List
 
 class AlgoPC:
     """
-    TCP connection for Algorithm PC communication
-    RPi acts as TCP client, connects to Algorithm PC server
+    TCP Server for Algorithm PC communication
+    RPi acts as TCP server, Algorithm PC connects as client
     """
-    def __init__(self):
-        # ========== MODIFY: Change to your Algorithm PC IP address ==========
-        self.host = "192.168.8.100"  # Algorithm PC IP address
-        # =====================================================================
-        self.port = 6000  # Algorithm server port (from algo_server.py)
+    def __init__(self, port: int = 6000):
+        # ========== Configuration ==========
+        self.port = port  # Port to listen on
+        # ===================================
+        self.server_socket = None
+        self.client_socket = None
+        self.client_address = None
         self.connected = False
-        self.socket = None
+        self.server_initialized = False
 
-    def connect(self):
+    def start_server(self) -> bool:
         """
-        Connect to Algorithm PC as TCP client
-        Algorithm PC must be running algo_server.py first
+        Start TCP server and bind to port
+        Must be called before wait_for_connection()
         """
         try:
-            self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            print(f"[AlgoPC] Connecting to Algorithm PC at {self.host}:{self.port}...")
+            self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            self.server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            self.server_socket.bind(("0.0.0.0", self.port))
+            self.server_socket.listen(1)
             
-            self.socket.connect((self.host, self.port))
-            print("[AlgoPC] Connected to Algorithm PC successfully")
+            # Get local IP address
+            hostname = socket.gethostname()
+            local_ip = socket.gethostbyname(hostname)
             
-            self.connected = True
+            print(f"[AlgoPC] Server started on {local_ip}:{self.port}")
+            print(f"[AlgoPC] Waiting for Algorithm PC to connect...")
+            self.server_initialized = True
             return True
             
         except socket.error as e:
-            print(f"[AlgoPC] Connection failed: {e}")
-            print("[AlgoPC] Make sure:")
-            print("[AlgoPC]   1. Algorithm PC is running algo_server.py")
-            print(f"[AlgoPC]   2. IP address {self.host} is correct")
-            print("[AlgoPC]   3. Both devices are on the same network")
-            print(f"[AlgoPC]   4. Firewall allows port {self.port}")
-            if self.socket:
-                self.socket.close()
+            print(f"[AlgoPC] Failed to start server: {e}")
+            print(f"[AlgoPC] Port {self.port} may already be in use")
+            if self.server_socket:
+                self.server_socket.close()
             return False
 
-    def disconnect(self):
-        """Disconnect from Algorithm PC"""
+    def wait_for_connection(self, timeout: float = 300.0) -> bool:
+        """
+        Wait for Algorithm PC to connect
+        
+        Args:
+            timeout: Connection timeout in seconds (default 5 minutes)
+            
+        Returns:
+            True if connected successfully
+        """
+        if not self.server_initialized:
+            print("[AlgoPC] Server not initialized. Call start_server() first.")
+            return False
+        
         try:
-            if self.socket:
-                self.socket.shutdown(socket.SHUT_RDWR)
-                self.socket.close()
-            self.socket = None
+            # Close old client socket if exists
+            if self.client_socket:
+                try:
+                    self.client_socket.close()
+                except:
+                    pass
+                self.client_socket = None
+            
+            self.server_socket.settimeout(timeout)
+            self.client_socket, self.client_address = self.server_socket.accept()
+            self.server_socket.settimeout(None)
+            self.connected = True
+            print(f"[AlgoPC] ✓ Algorithm PC connected from {self.client_address}")
+            return True
+            
+        except socket.timeout:
+            print(f"[AlgoPC] ✗ Connection timeout - no client connected within {timeout}s")
             self.connected = False
-            print("[AlgoPC] Disconnected successfully")
+            return False
         except Exception as e:
-            print(f"[AlgoPC] Error disconnecting: {e}")
+            print(f"[AlgoPC] ✗ Connection error: {e}")
+            self.connected = False
+            return False
+
+    def connect(self) -> bool:
+        """
+        Start server and wait for Algorithm PC connection
+        (Convenience method that combines start_server + wait_for_connection)
+        
+        Returns:
+            True if connected successfully
+        """
+        # If server already initialized, just wait for new client
+        if self.server_initialized and self.server_socket:
+            return self.wait_for_connection()
+        
+        # Start server first
+        if not self.start_server():
+            return False
+        
+        # Wait for client
+        return self.wait_for_connection()
+
+    def disconnect(self, keep_server: bool = True):
+        """
+        Disconnect Algorithm PC client
+        
+        Args:
+            keep_server: If True, keep server socket alive for reconnections
+        """
+        try:
+            self.connected = False
+            if self.client_socket:
+                try:
+                    self.client_socket.close()
+                except:
+                    pass
+                self.client_socket = None
+            
+            # Only close server if explicitly requested
+            if not keep_server and self.server_socket:
+                try:
+                    self.server_socket.close()
+                except:
+                    pass
+                self.server_socket = None
+                self.server_initialized = False
+            
+            self.client_address = None
+            if keep_server:
+                print("[AlgoPC] Client disconnected (server still listening)")
+            else:
+                print("[AlgoPC] Server shut down")
+        except Exception as e:
+            print(f"[AlgoPC] Disconnect error: {e}")
 
     def send(self, message: str) -> bool:
         """Send string message to Algorithm PC"""
+        if not self.connected or not self.client_socket:
+            print("[AlgoPC] Not connected")
+            return False
+        
         try:
-            self.socket.send(message.encode("utf-8"))
+            self.client_socket.send(message.encode("utf-8"))
             print(f"[AlgoPC] Sent: {message}")
             return True
         except Exception as e:
             print(f"[AlgoPC] Failed to send: {e}")
+            self.connected = False
             return False
 
     def send_json(self, data: Dict) -> bool:
         """Send JSON data to Algorithm PC (for obstacle coordinates)"""
+        if not self.connected or not self.client_socket:
+            print("[AlgoPC] Not connected")
+            return False
+        
         try:
             message = json.dumps(data)
-            self.socket.send(message.encode("utf-8"))
+            self.client_socket.send(message.encode("utf-8"))
             print(f"[AlgoPC] Sent JSON: {message}")
             return True
         except Exception as e:
             print(f"[AlgoPC] Failed to send JSON: {e}")
+            self.connected = False
             return False
 
     def receive(self, timeout: float = 5.0) -> Optional[str]:
@@ -86,19 +178,28 @@ class AlgoPC:
         Returns:
             Message string or None on timeout/error
         """
+        if not self.connected or not self.client_socket:
+            return None
+        
         try:
-            self.socket.settimeout(timeout)
-            data = self.socket.recv(4096)
-            self.socket.settimeout(None)
+            self.client_socket.settimeout(timeout)
+            data = self.client_socket.recv(4096)
+            self.client_socket.settimeout(None)
             if data:
                 message = data.decode("utf-8")
+                print(f"[AlgoPC] Received: {message}")
                 return message
-            return None
+            else:
+                # Empty data means client disconnected
+                print("[AlgoPC] Client disconnected (recv returned empty)")
+                self.connected = False
+                return None
         except socket.timeout:
             return None
         except OSError as e:
             print(f"[AlgoPC] Failed to receive: {e}")
-            raise e
+            self.connected = False
+            return None
 
     def receive_json(self, timeout: float = 5.0) -> Optional[Dict]:
         """
@@ -107,14 +208,23 @@ class AlgoPC:
         Args:
             timeout: Socket timeout in seconds
         """
+        if not self.connected or not self.client_socket:
+            return None
+        
         try:
-            self.socket.settimeout(timeout)
-            data = self.socket.recv(4096)
-            self.socket.settimeout(None)
+            self.client_socket.settimeout(timeout)
+            data = self.client_socket.recv(4096)
+            self.client_socket.settimeout(None)
             if data:
                 message = data.decode("utf-8")
-                return json.loads(message)
-            return None
+                json_data = json.loads(message)
+                print(f"[AlgoPC] Received JSON: {message}")
+                return json_data
+            else:
+                # Empty data means client disconnected
+                print("[AlgoPC] Client disconnected (recv returned empty)")
+                self.connected = False
+                return None
         except socket.timeout:
             return None
         except json.JSONDecodeError as e:
@@ -122,4 +232,9 @@ class AlgoPC:
             return None
         except OSError as e:
             print(f"[AlgoPC] Failed to receive: {e}")
-            raise e
+            self.connected = False
+            return None
+    
+    def is_connected(self) -> bool:
+        """Check if Algorithm PC is connected"""
+        return self.connected

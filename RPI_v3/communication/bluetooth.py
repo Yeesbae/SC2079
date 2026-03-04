@@ -29,6 +29,7 @@ class BluetoothHandler:
         self.client_socket = None
         self.client_address = None
         self.connected = False
+        self.server_initialized = False
     
     def _release_rfcomm_ports(self):
         """Release any stuck RFCOMM ports"""
@@ -42,19 +43,18 @@ class BluetoothHandler:
         except Exception as e:
             print(f"[Bluetooth] Note: Could not release ports: {e}")
     
-    def _try_bind(self, bluetooth_module, port: int) -> bool:
+    def _try_bind(self, bluetooth_module) -> bool:
         """
-        Try to bind to a specific RFCOMM port
+        Bind to any available RFCOMM port using PORT_ANY
         
         Returns:
             True if bind successful
         """
         try:
             self.server_socket = bluetooth_module.BluetoothSocket(bluetooth_module.RFCOMM)
-            self.server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            self.server_socket.bind(("", port))
+            self.server_socket.bind(("", bluetooth_module.PORT_ANY))
             self.server_socket.listen(1)
-            self.port = port
+            self.port = self.server_socket.getsockname()[1]
             return True
         except OSError as e:
             if self.server_socket:
@@ -65,6 +65,45 @@ class BluetoothHandler:
                 self.server_socket = None
             return False
         
+    def wait_for_client(self) -> bool:
+        """
+        Wait for a new client connection on existing server socket
+        Used for reconnections without recreating the server
+        
+        Returns:
+            True if client connected successfully
+        """
+        if not self.server_socket:
+            return False
+            
+        try:
+            import bluetooth
+            
+            # Close old client socket if exists
+            if self.client_socket:
+                try:
+                    self.client_socket.close()
+                except:
+                    pass
+                self.client_socket = None
+            
+            print(f"[Bluetooth] Waiting for client reconnection on channel {self.port}...")
+            self.server_socket.settimeout(300)  # 5 minute timeout
+            self.client_socket, self.client_address = self.server_socket.accept()
+            self.server_socket.settimeout(None)
+            self.connected = True
+            print(f"[Bluetooth] ✓ Client reconnected: {self.client_address}")
+            return True
+            
+        except socket.timeout:
+            print("[Bluetooth] ✗ Reconnection timeout")
+            self.connected = False
+            return False
+        except Exception as e:
+            print(f"[Bluetooth] ✗ Reconnection error: {e}")
+            self.connected = False
+            return False
+    
     def connect(self) -> bool:
         """
         Start Bluetooth server and wait for Android connection
@@ -76,46 +115,48 @@ class BluetoothHandler:
             # Import bluetooth here to avoid issues if not on RPi
             import bluetooth
             
+            # If server already initialized, just wait for new client
+            if self.server_initialized and self.server_socket:
+                return self.wait_for_client()
+            
             # Clean up any existing sockets first
-            self.disconnect()
+            self.disconnect(keep_server=False)
             
             # Try to release any stuck RFCOMM ports first
             self._release_rfcomm_ports()
             
-            # Try multiple RFCOMM channels (1, 2, 3, 4, 5)
-            ports_to_try = [self.port] + [p for p in [1, 2, 3, 4, 5] if p != self.port]
-            bound = False
-            
-            for port in ports_to_try:
-                print(f"[Bluetooth] Trying RFCOMM channel {port}...")
-                if self._try_bind(bluetooth, port):
-                    print(f"[Bluetooth] ✓ Bound to RFCOMM channel {port}")
-                    bound = True
-                    break
-                else:
-                    print(f"[Bluetooth] ✗ Channel {port} unavailable")
-            
-            if not bound:
-                print("[Bluetooth] ✗ All RFCOMM channels failed!")
+            # Use PORT_ANY — let the system assign a free channel
+            if not self._try_bind(bluetooth):
+                print("[Bluetooth] ✗ Failed to bind to any RFCOMM channel!")
                 print("[Bluetooth] Try running: sudo rfcomm release all && sudo systemctl restart bluetooth")
                 return False
+            print(f"[Bluetooth] ✓ Bound to RFCOMM channel {self.port}")
             
-            # Get local Bluetooth address
-            local_bt_addr = bluetooth.read_local_bdaddr()[0]
-            print(f"[Bluetooth] RPi Bluetooth Address: {local_bt_addr}")
+            # Get local Bluetooth address (best-effort — fails on some kernels)
+            try:
+                local_bt_addr = bluetooth.read_local_bdaddr()[0]
+                print(f"[Bluetooth] RPi Bluetooth Address: {local_bt_addr}")
+            except Exception:
+                pass
             
-            # Advertise the service
-            print(f"[Bluetooth] Advertising service 'MDP-Group8-RPi' with UUID {self.UUID}...")
-            bluetooth.advertise_service(
-                self.server_socket,
-                "MDP-Group8-RPi",
-                service_id=self.UUID,
-                service_classes=[self.UUID, bluetooth.SERIAL_PORT_CLASS],
-                profiles=[bluetooth.SERIAL_PORT_PROFILE]
-            )
-            
-            print(f"[Bluetooth] Service advertised. Waiting for RFCOMM connection on channel {self.port}...")
-            print(f"[Bluetooth] Android app should now connect to UUID: {self.UUID}")
+            # Advertise the service (best-effort — fails if /var/run/sdp is not accessible)
+            try:
+                print(f"[Bluetooth] Advertising service 'MDP-Group8-RPi' with UUID {self.UUID}...")
+                bluetooth.advertise_service(
+                    self.server_socket,
+                    "MDP-Group8-RPi",
+                    service_id=self.UUID,
+                    service_classes=[self.UUID, bluetooth.SERIAL_PORT_CLASS],
+                    profiles=[bluetooth.SERIAL_PORT_PROFILE]
+                )
+                print("[Bluetooth] Service advertised via SDP.")
+            except Exception as adv_err:
+                print(f"[Bluetooth] ⚠ SDP advertise skipped ({adv_err})")
+                print(f"[Bluetooth]   Connect manually to MAC + channel {self.port}")
+                print(f"[Bluetooth]   Fix: sudo chmod 777 /var/run/sdp")
+
+            print(f"[Bluetooth] Waiting for RFCOMM connection on channel {self.port}...")
+            print(f"[Bluetooth] Android/PC should connect to UUID: {self.UUID}")
             
             # Set a timeout for debugging
             self.server_socket.settimeout(300)  # 5 minute timeout
@@ -123,6 +164,7 @@ class BluetoothHandler:
             self.client_socket, self.client_address = self.server_socket.accept()
             self.server_socket.settimeout(None)  # Remove timeout after connection
             self.connected = True
+            self.server_initialized = True
             print(f"[Bluetooth] ✓ Connected to {self.client_address}")
             return True
             
@@ -155,8 +197,12 @@ class BluetoothHandler:
             self.disconnect()
             return False
     
-    def disconnect(self):
-        """Close Bluetooth connection and clean up for reconnection"""
+    def disconnect(self, keep_server: bool = True):
+        """Close Bluetooth connection and optionally clean up server
+        
+        Args:
+            keep_server: If True, keep server socket alive for reconnections
+        """
         try:
             self.connected = False
             if self.client_socket:
@@ -165,14 +211,26 @@ class BluetoothHandler:
                 except:
                     pass
                 self.client_socket = None
-            if self.server_socket:
+            
+            # Only close server if explicitly requested
+            if not keep_server and self.server_socket:
+                try:
+                    import bluetooth
+                    bluetooth.stop_advertising(self.server_socket)
+                except:
+                    pass
                 try:
                     self.server_socket.close()
                 except:
                     pass
                 self.server_socket = None
+                self.server_initialized = False
+            
             self.client_address = None
-            print("[Bluetooth] Disconnected")
+            if keep_server:
+                print("[Bluetooth] Client disconnected (server still listening)")
+            else:
+                print("[Bluetooth] Disconnected")
         except Exception as e:
             print(f"[Bluetooth] Disconnect error: {e}")
     
@@ -219,6 +277,14 @@ class BluetoothHandler:
                 print(f"[Bluetooth] Received: {message}")
                 return message
             return None
+        except (socket.timeout, TimeoutError):
+            return None
+        except OSError as e:
+            if e.errno in (11, 110) or "timed out" in str(e):
+                return None
+            print(f"[Bluetooth] Receive error: {e}")
+            self.connected = False
+            return None
         except Exception as e:
             print(f"[Bluetooth] Receive error: {e}")
             self.connected = False
@@ -245,12 +311,29 @@ class BluetoothHandler:
                 message = data.decode("utf-8").strip()
                 print(f"[Bluetooth] Received: {message}")
                 return message
+            else:
+                # Empty data means client disconnected
+                print("[Bluetooth] Client disconnected (recv returned empty)")
+                self.connected = False
+                return None
+        except (socket.timeout, TimeoutError):
+            self.client_socket.settimeout(None)
             return None
-        except socket.timeout:
+        except OSError as e:
+            self.client_socket.settimeout(None)
+            # EAGAIN (11) / ETIMEDOUT (110) / "timed out" are normal timeout signals on RFCOMM
+            if e.errno in (11, 110) or "timed out" in str(e):
+                return None
+            print(f"[Bluetooth] Receive error: {e}")
+            self.connected = False
             return None
         except Exception as e:
             print(f"[Bluetooth] Receive error: {e}")
             self.connected = False
+            try:
+                self.client_socket.settimeout(None)
+            except:
+                pass
             return None
     
     def is_connected(self) -> bool:
