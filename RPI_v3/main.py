@@ -811,6 +811,291 @@ def run_imgrec_pc_test():
 
 
 # =============================================================================
+# Full Integration Test (Mode 6)
+# =============================================================================
+def run_full_integration_test():
+    """
+    Mode 6: Full integration test - BT + Algo PC + Image Rec PC
+    
+    Communication Flow:
+    1. BT → RPi → Algo PC (obstacle coordinates)
+    2. Algo PC → RPi → BT (path/acknowledgment)
+    3. Camera → Image Rec PC (video stream via UDP)
+    4. Image Rec PC → RPi → BT (detection results)
+    
+    This tests the complete system integration without STM32.
+    """
+    from communication.bluetooth import BluetoothHandler
+    from communication.algo_pc import AlgoPC
+    from communication.pc import PC
+    from camera.stream_server import StreamServer
+    from config.config import get_config
+
+    print("\n" + "=" * 60)
+    print("FULL INTEGRATION TEST (BT + ALGO + IMG REC)")
+    print("=" * 60)
+    
+    config = get_config()
+    
+    # Initialize all communication handlers
+    bt = BluetoothHandler()
+    algo = AlgoPC()
+    imgpc = PC()
+    
+    # Start Algorithm PC server
+    print("\n[1] Starting Algorithm PC server...")
+    if not algo.start_server():
+        print("[Mode 6] ✗ Failed to start Algorithm PC server.")
+        return
+    
+    # Start video stream server in background thread
+    print("[2] Starting video stream server...")
+    def run_stream():
+        try:
+            StreamServer().start(
+                framerate=15,
+                quality=45,
+                is_outdoors=config.is_outdoors
+            )
+        except Exception as e:
+            print(f"[Stream] Error: {e}")
+    
+    stream_thread = threading.Thread(target=run_stream, daemon=True)
+    stream_thread.start()
+    time.sleep(0.5)
+    
+    # Connect to Image Rec PC (TCP server - wait for PC)
+    print("[3] Waiting for Image Rec PC to connect...")
+    try:
+        imgpc.connect()
+        print("[Mode 6] ✓ Image Rec PC connected")
+    except Exception as e:
+        print(f"[Mode 6] ✗ Failed to connect Image Rec PC: {e}")
+        print("[Mode 6] Continuing without Image Rec PC...")
+    
+    print("\n" + "=" * 60)
+    print("System Status:")
+    print("  - Video Stream: Running (UDP port 5005)")
+    print(f"  - Image Rec PC: {'Connected' if imgpc.connected else 'Not connected'}")
+    print("  - Algo PC: Waiting for connection (TCP port 6000)")
+    print("  - Bluetooth: Waiting for connection")
+    print("=" * 60)
+    print("\nKeyboard commands:")
+    print("  status      - Show all connection status")
+    print("  bt <text>   - Send message to Bluetooth")
+    print("  algo <text> - Send message to Algo PC")
+    print("  q           - Quit")
+    print("=" * 60)
+    
+    running = True
+    msg_count = {'bt': 0, 'algo': 0, 'imgpc': 0}
+    
+    def algo_connection_thread():
+        """Handle Algo PC connections"""
+        while running:
+            try:
+                if not algo.is_connected():
+                    print("\n[AlgoPC] Waiting for Algorithm PC to connect...")
+                    print(">> ", end='', flush=True)
+                    if algo.wait_for_connection(timeout=60.0):
+                        print("\n[AlgoPC] ✓ Algorithm PC connected!")
+                        print(">> ", end='', flush=True)
+                else:
+                    time.sleep(1)
+            except:
+                if running:
+                    time.sleep(1)
+                break
+    
+    def bluetooth_connection_thread():
+        """Handle Bluetooth connections"""
+        while running:
+            try:
+                if not bt.is_connected():
+                    print("\n[Bluetooth] Waiting for client connection...")
+                    print(">> ", end='', flush=True)
+                    if bt.connect():
+                        print("\n[Bluetooth] ✓ Client connected!")
+                        print(">> ", end='', flush=True)
+                else:
+                    time.sleep(1)
+            except:
+                if running:
+                    time.sleep(1)
+                break
+    
+    def receive_bluetooth_thread():
+        """Receive from BT, forward obstacle coords to Algo PC"""
+        while running:
+            try:
+                if not bt.is_connected():
+                    time.sleep(0.5)
+                    continue
+                
+                msg = bt.receive_nonblocking(timeout=0.1)
+                if msg:
+                    msg = msg.strip()
+                    msg_count['bt'] += 1
+                    print(f"\n[BT → RPi] {msg}")
+                    
+                    # Forward to Algorithm PC (obstacle coordinates)
+                    if algo.is_connected():
+                        try:
+                            import json
+                            # Try to parse as JSON
+                            data = json.loads(msg)
+                            algo.send_json(data)
+                            print(f"[RPi → AlgoPC] {msg} (JSON)")
+                        except json.JSONDecodeError:
+                            # Send as plain text
+                            algo.send(msg)
+                            print(f"[RPi → AlgoPC] {msg}")
+                    else:
+                        print("[RPi] AlgoPC not connected - message not forwarded")
+                    
+                    print(">> ", end='', flush=True)
+                elif not bt.is_connected():
+                    print("\n[DISCONNECTED] Bluetooth client disconnected")
+                    print(">> ", end='', flush=True)
+            except Exception as e:
+                if running:
+                    print(f"\n[BT Error] {e}")
+                    print(">> ", end='', flush=True)
+                time.sleep(0.5)
+    
+    def receive_algopc_thread():
+        """Receive from Algo PC, forward path to BT"""
+        while running:
+            try:
+                if not algo.is_connected():
+                    time.sleep(0.5)
+                    continue
+                
+                msg = algo.receive(timeout=0.1)
+                if msg:
+                    msg = msg.strip()
+                    msg_count['algo'] += 1
+                    print(f"\n[AlgoPC → RPi] {msg}")
+                    
+                    # Forward to Bluetooth
+                    if bt.is_connected():
+                        bt.send(msg)
+                        print(f"[RPi → BT] {msg}")
+                    else:
+                        print("[RPi] Bluetooth not connected - message not forwarded")
+                    
+                    print(">> ", end='', flush=True)
+                elif not algo.is_connected():
+                    print("\n[DISCONNECTED] Algorithm PC disconnected")
+                    print(">> ", end='', flush=True)
+                    time.sleep(1)
+            except Exception as e:
+                if running and algo.is_connected():
+                    print(f"\n[AlgoPC Error] {e}")
+                    print(">> ", end='', flush=True)
+                time.sleep(0.5)
+    
+    def receive_imgpc_thread():
+        """Receive from Image Rec PC, forward detections to BT"""
+        while running:
+            try:
+                if not imgpc.connected:
+                    time.sleep(0.5)
+                    continue
+                
+                msg = imgpc.receive()
+                if msg:
+                    msg = msg.strip()
+                    msg_count['imgpc'] += 1
+                    timestamp = time.strftime("%H:%M:%S")
+                    
+                    # Parse detection result
+                    if "," in msg and len(msg.split(",")) == 3:
+                        obstacle_id, conf, image_id = msg.split(",")
+                        print(f"\n[{timestamp}] Image Detection:")
+                        print(f"  Obstacle: {obstacle_id} | Image: {image_id} | Conf: {conf}")
+                    else:
+                        print(f"\n[{timestamp}] ImgPC → RPi: {msg}")
+                    
+                    # Forward to Bluetooth
+                    if bt.is_connected():
+                        forward_msg = f"IMG:{msg}"
+                        bt.send(forward_msg)
+                        print(f"[RPi → BT] {forward_msg}")
+                    else:
+                        print("[RPi] Bluetooth not connected - detection not forwarded")
+                    
+                    print(">> ", end='', flush=True)
+            except Exception as e:
+                if running:
+                    print(f"\n[ImgPC Error] {e}")
+                    print(">> ", end='', flush=True)
+                    imgpc.connected = False
+                break
+    
+    # Start all background threads
+    algo_conn_thread = threading.Thread(target=algo_connection_thread, daemon=True)
+    algo_conn_thread.start()
+    
+    bt_conn_thread = threading.Thread(target=bluetooth_connection_thread, daemon=True)
+    bt_conn_thread.start()
+    
+    recv_bt_thread = threading.Thread(target=receive_bluetooth_thread, daemon=True)
+    recv_bt_thread.start()
+    
+    recv_algo_thread = threading.Thread(target=receive_algopc_thread, daemon=True)
+    recv_algo_thread.start()
+    
+    if imgpc.connected:
+        recv_imgpc_thread = threading.Thread(target=receive_imgpc_thread, daemon=True)
+        recv_imgpc_thread.start()
+    
+    # Main command loop
+    try:
+        while running:
+            cmd = input(">> ").strip()
+            
+            if cmd.lower() == 'q':
+                break
+            elif cmd.lower() == 'status':
+                print(f"\n  Bluetooth : {'Connected' if bt.is_connected() else 'Waiting...'}")
+                print(f"  AlgoPC    : {'Connected' if algo.is_connected() else 'Waiting...'}")
+                print(f"  ImgPC     : {'Connected' if imgpc.connected else 'Not connected'}")
+                print("  Stream    : Running")
+                print("\n  Messages Received:")
+                print(f"    BT → RPi    : {msg_count['bt']}")
+                print(f"    AlgoPC → RPi: {msg_count['algo']}")
+                print(f"    ImgPC → RPi : {msg_count['imgpc']}")
+                print()
+            elif cmd.lower().startswith('bt '):
+                message = cmd[3:].strip()
+                if bt.is_connected():
+                    bt.send(message)
+                    print(f"[RPi → BT] {message}")
+                else:
+                    print("[WARN] Bluetooth not connected")
+            elif cmd.lower().startswith('algo '):
+                message = cmd[5:].strip()
+                if algo.is_connected():
+                    algo.send(message)
+                    print(f"[RPi → AlgoPC] {message}")
+                else:
+                    print("[WARN] Algo PC not connected")
+            elif cmd:
+                print("Unknown command. Use: status, bt <text>, algo <text>, q")
+    
+    except KeyboardInterrupt:
+        print("\n\n[Mode 6] Interrupted by user")
+    finally:
+        running = False
+        bt.disconnect(keep_server=False)
+        algo.disconnect(keep_server=False)
+        imgpc.disconnect()
+        print("\n[Mode 6] Full integration test ended")
+        print(f"[Mode 6] Total messages: BT={msg_count['bt']}, Algo={msg_count['algo']}, ImgPC={msg_count['imgpc']}")
+
+
+# =============================================================================
 # Main Process Manager
 # =============================================================================
 class MultiProcessManager:
@@ -999,12 +1284,13 @@ def select_run_mode() -> str:
     print("  3. Bluetooth + STM32 Bridge Test (BT commands → STM32)")
     print("  4. Bluetooth + Algorithm PC Bridge (BT ↔ RPi ↔ AlgoPC)")
     print("  5. Image Rec PC Communication Test (RPi ↔ ImgRec PC)")
+    print("  6. Full Integration Test (BT + Algo + ImgRec)")
     
     while True:
-        mode = input("\nSelect mode (1/2/3/4/5) >> ").strip()
-        if mode in ['1', '2', '3', '4', '5']:
+        mode = input("\nSelect mode (1/2/3/4/5/6) >> ").strip()
+        if mode in ['1', '2', '3', '4', '5', '6']:
             return mode
-        print("Please enter 1, 2, 3, 4, or 5")
+        print("Please enter 1, 2, 3, 4, 5, or 6")
 
 
 def select_task() -> int:
@@ -1066,3 +1352,7 @@ if __name__ == "__main__":
     elif run_mode == '5':
         # Image Rec PC Communication Test
         run_imgrec_pc_test()
+    
+    elif run_mode == '6':
+        # Full Integration Test (BT + Algo + ImgRec)
+        run_full_integration_test()
