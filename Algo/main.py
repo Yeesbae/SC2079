@@ -3,18 +3,25 @@ import time
 from pathAlgo import MazeSolver
 from constants import Direction, ARENA_WIDTH, ARENA_HEIGHT
 from visualizer import MazeVisualizer
-from Util.helper import path_to_stm_commands
+from Util.helper import compress_path
 
 def task_1():
     # Start robot at (3, 3) facing NORTH
     solver = MazeSolver(size_x=ARENA_WIDTH, size_y=ARENA_HEIGHT, robot_x=3, robot_y=3, robot_direction=Direction.NORTH)
     
     # """5 Obstacles: Test Case 1"""
-    # solver.add_obstacle(x=6,  y=6,  direction=Direction.NORTH, obstacle_id=1)
-    # solver.add_obstacle(x=30, y=6,  direction=Direction.WEST,  obstacle_id=2)
-    # solver.add_obstacle(x=6,  y=30, direction=Direction.EAST,  obstacle_id=3)
+    # solver.add_obstacle(x=7,  y=7,  direction=Direction.NORTH, obstacle_id=1)
+    # solver.add_obstacle(x=30, y=7,  direction=Direction.WEST,  obstacle_id=2)
+    # solver.add_obstacle(x=7,  y=30, direction=Direction.EAST,  obstacle_id=3)
     # solver.add_obstacle(x=30, y=30, direction=Direction.SOUTH, obstacle_id=4)
     # solver.add_obstacle(x=18, y=18, direction=Direction.WEST,  obstacle_id=5)
+
+    # """5 Obstacles: Test Case 2"""
+    # solver.add_obstacle(x=5,  y=18,  direction=Direction.SOUTH, obstacle_id=1)
+    # solver.add_obstacle(x=25, y=5,  direction=Direction.WEST,  obstacle_id=2)
+    # solver.add_obstacle(x=35,  y=13, direction=Direction.WEST,  obstacle_id=3)
+    # solver.add_obstacle(x=25, y=23, direction=Direction.NORTH, obstacle_id=4)
+    # solver.add_obstacle(x=5, y=33, direction=Direction.EAST,  obstacle_id=5)
 
     # """8 Obstacles: Test Case 1"""
     # solver.add_obstacle(x=2,  y=15,  direction=Direction.SOUTH, obstacle_id=1)
@@ -36,6 +43,16 @@ def task_1():
     solver.add_obstacle(x=31, y=31, direction=Direction.SOUTH, obstacle_id=7)
     solver.add_obstacle(x=36, y=36, direction=Direction.SOUTH,  obstacle_id=8)
 
+    # """8 Obstacles: Test Case 3"""
+    # solver.add_obstacle(x=5,  y=18,  direction=Direction.NORTH, obstacle_id=1)
+    # solver.add_obstacle(x=9, y=18,  direction=Direction.SOUTH,  obstacle_id=2)
+    # solver.add_obstacle(x=18, y=3,  direction=Direction.WEST, obstacle_id=3)
+    # solver.add_obstacle(x=36, y=3, direction=Direction.WEST,  obstacle_id=4)
+    # solver.add_obstacle(x=34, y=11, direction=Direction.NORTH, obstacle_id=5)
+    # solver.add_obstacle(x=5, y=33, direction=Direction.SOUTH,  obstacle_id=6)
+    # solver.add_obstacle(x=15, y=33, direction=Direction.EAST, obstacle_id=7)
+    # solver.add_obstacle(x=36, y=33, direction=Direction.WEST,  obstacle_id=8)
+
     # 5 Obs around 10.51 ~ 11.63 seconds
     # 8 Obs around 40.41 ~ 51.46 seconds
 
@@ -47,8 +64,8 @@ def task_1():
     optimal_path, total_distance = solver.get_optimal_order_dp(retrying=False)
     print(optimal_path)
     print()
-    commands = path_to_stm_commands(optimal_path)
-    print(commands)
+    compressed_path = compress_path(optimal_path)
+    print(compressed_path)
     # End the timer
     end_time = time.perf_counter()
     # Calculate duration

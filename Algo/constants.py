@@ -37,8 +37,8 @@ ARENA_HEIGHT = ARENA_SIZE_CM // CELL_SIZE_CM
 # =====================
 
 ROBOT_SIZE_CM = 25
-ROBOT_SIZE_CELLS = (ROBOT_SIZE_CM // CELL_SIZE_CM)  # = 4
-ROBOT_HALF_CELLS = ROBOT_SIZE_CELLS // 2   # = 2
+ROBOT_SIZE_CELLS = (ROBOT_SIZE_CM // CELL_SIZE_CM)  # = 5
+ROBOT_HALF_CELLS = ROBOT_SIZE_CELLS / 2   # = 2
 
 
 # =====================
@@ -47,8 +47,8 @@ ROBOT_HALF_CELLS = ROBOT_SIZE_CELLS // 2   # = 2
 
 OBSTACLE_SIZE_CM = 10
 OBSTACLE_SIZE_CELLS = (OBSTACLE_SIZE_CM // CELL_SIZE_CM)
-OBSTACLE_HALF_CELLS = OBSTACLE_SIZE_CELLS // 2  # = 1
-OBSTACLE_INFLATION_CELLS = 1 # Inflate an edge of a obstacle by how many cells
+OBSTACLE_HALF_CELLS = OBSTACLE_SIZE_CELLS / 2  # = 1
+OBSTACLE_INFLATION_CELLS = 0.5 # Inflate an edge of a obstacle by how many cells
 
 
 # =====================
@@ -57,7 +57,7 @@ OBSTACLE_INFLATION_CELLS = 1 # Inflate an edge of a obstacle by how many cells
 
 ACTUAL_OPTIMAL_VIEWING_DISTANCE_CM = 20
 OPTIMAL_VIEWING_DISTANCE_BETWEEN_CAR_OB_COORDINATES_CM = ACTUAL_OPTIMAL_VIEWING_DISTANCE_CM
-OPTIMAL_IMAGE_VIEWING_DISTANCE = OPTIMAL_VIEWING_DISTANCE_BETWEEN_CAR_OB_COORDINATES_CM // CELL_SIZE_CM + ROBOT_HALF_CELLS
+OPTIMAL_IMAGE_VIEWING_DISTANCE = OPTIMAL_VIEWING_DISTANCE_BETWEEN_CAR_OB_COORDINATES_CM // CELL_SIZE_CM + int(ROBOT_HALF_CELLS)
 
 
 # =====================
@@ -86,12 +86,32 @@ MOVE_DIRECTION = [
 
 # Calculated when assuming coors for both car and obstacle are the center
 # The mask is calculated by calculating inner & outer sweep circle using GeogeBra Tool.
+# """
+# Robot: 25cm x 25cm (5 cells x 5 cells)
+# Obstacle: 10cm x 10cm (2 cells x 2 cells)
+# Obstacle Inflation: 0 cells
+# Turning Radius: 25cm (5 cells)
+# """
+# NORTH_LEFT_MASK = [
+#     (-8, -4, 2, 8),
+#     (-3, -1, 4, 8),
+#     (0, 1, 4, 7),
+#     (2, 2, 4, 6),
+#     (3, 3, 4, 4),
+# ]
+
+"""
+Robot: 25cm x 25cm (5 cells x 5 cells)
+Obstacle: 10cm x 10cm (2 cells x 2 cells)
+Obstacle Inflation: 0.5 cells
+Turning Radius: 25cm (5 cells)
+"""
 NORTH_LEFT_MASK = [
-    (-8, -4, 2, 8),
-    (-3, -1, 4, 8),
-    (0, 1, 4, 7),
-    (2, 2, 4, 6),
-    (3, 3, 4, 4),
+    (-9, -5, 1, 9),
+    (-4, -1, 5, 9),
+    (0, 1, 5, 8),
+    (2, 2, 5, 7),
+    (3, 3, 5, 6),
 ]
 
 

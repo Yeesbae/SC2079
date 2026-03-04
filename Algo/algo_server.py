@@ -8,7 +8,6 @@ import json
 import threading
 from pathAlgo import MazeSolver
 from Entities.Cell import CellState
-from Util.helper import path_to_stm_commands
 from constants import Direction
 
 
@@ -84,10 +83,8 @@ class AlgoServer:
 
                     # Calculate path
                     path = self._calculate_path(arena_data)
-                    # stm_commands = path_to_stm_commands(path)
 
                     # Send path back
-                    # path_json = json.dumps(stm_commands)
                     path_json = json.dumps(path)
                     conn.send(path_json.encode('utf-8'))
                     print(f"[AlgoServer] Sent path to {addr}")
@@ -101,6 +98,7 @@ class AlgoServer:
 
         except Exception as e:
             print(f"[AlgoServer] Connection error with {addr}: {str(e)}")
+            
         finally:
             conn.close()
 
@@ -110,10 +108,17 @@ class AlgoServer:
 
         Args:
             arena_data (dict): {
-                'grid_size': {'x': int, 'y': int},
-                'robot': {'x': int, 'y': int, 'd': int},
-                'obstacles': [{'id': int, 'x': int, 'y': int, 'width': int, 'length': int, 'd': int}, ...],
-                'parking': {'x': int, 'y': int, 'd': int} (optional)
+                "cmd": "START_EXPLORE",
+                "grid_size": {
+                    "x":40, "y":40
+                },
+                "robot": {
+                    "x":0,"y":0,"d":0
+                },
+                "obstacles": [
+                    {"id":1,"x":21,"y":14,"width":2,"length":2,"d":0}, 
+                    {"id":1,"x":30,"y":27,"width":2,"length":2,"d":2}
+                ]
             }
 
         Returns:
@@ -156,15 +161,6 @@ class AlgoServer:
         print(f"[AlgoServer] Calculating path for {len(obstacles)} obstacles...")
         optimal_path, total_cost = solver.get_optimal_order_dp(retrying=False)
         print(f"[AlgoServer] Path calculated. Total cost: {total_cost}")
-
-        # Check for parking location
-        parking = arena_data.get('parking')
-        if parking:
-            parking_x = parking.get('x')
-            parking_y = parking.get('y')
-            parking_d = Direction(parking.get('d', Direction.NORTH))
-            path_to_parking = solver.get_path_to_parking(parking_x, parking_y, parking_d)
-            optimal_path.extend(path_to_parking)
 
         # Convert CellState objects to dictionaries
         path_list = [cell.get_dict() for cell in optimal_path]

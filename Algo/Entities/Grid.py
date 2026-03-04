@@ -113,7 +113,7 @@ class Grid:
         Returns:
             bool: True if valid, False otherwise
         """
-        if x < ROBOT_HALF_CELLS or x >= self.size_x - ROBOT_HALF_CELLS or y < ROBOT_HALF_CELLS or y >= self.size_y - ROBOT_HALF_CELLS:
+        if x < ROBOT_HALF_CELLS or x > self.size_x - ROBOT_HALF_CELLS or y < ROBOT_HALF_CELLS or y > self.size_y - ROBOT_HALF_CELLS:
             return False
 
         return True
