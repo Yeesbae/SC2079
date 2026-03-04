@@ -15,7 +15,7 @@ object RobotReducer {
 
     fun ensureRobot(state: AppState): AppState {
         if (state.robot != null) return state
-        val r = RobotState(x = 0, y = 0, directionDeg = 0)
+        val r = RobotState(x = 1, y = 1, directionDeg = 0)
         return state.copy(robot = r)
     }
 

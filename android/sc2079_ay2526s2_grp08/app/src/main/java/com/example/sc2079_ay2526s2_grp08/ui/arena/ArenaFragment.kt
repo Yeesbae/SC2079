@@ -79,6 +79,10 @@ class ArenaFragment : Fragment() {
             override fun onPlacedRemove(protocolId: String) {
                 viewModel.removePlaced(protocolId)
             }
+
+            override fun onRobotTap() {
+                showRobotPoseDialog()
+            }
         })
 
         viewLifecycleOwner.lifecycleScope.launch {
@@ -204,6 +208,58 @@ class ArenaFragment : Fragment() {
             .setNegativeButton("Cancel") { _, _ ->
                 viewModel.cancelPending()
             }
+            .show()
+    }
+
+    private fun showRobotPoseDialog() {
+        val dialogView = layoutInflater.inflate(R.layout.dialog_robot_pose, null)
+
+        val blX = dialogView.findViewById<EditText>(R.id.blX)
+        val blY = dialogView.findViewById<EditText>(R.id.blY)
+        val etW = dialogView.findViewById<EditText>(R.id.etW)
+        val etH = dialogView.findViewById<EditText>(R.id.etH)
+        val spFacing = dialogView.findViewById<Spinner>(R.id.spFacing)
+
+        spFacing.adapter = ArrayAdapter(
+            requireContext(),
+            android.R.layout.simple_spinner_dropdown_item,
+            DirectionUtil.faces
+        )
+
+        val s0 = viewModel.state.value
+        val r0 = s0.robot
+        blX.setText((r0?.x ?: 1).toString())
+        blY.setText((r0?.y ?: 1).toString())
+        etW.setText((r0?.robotX ?: 3).toString())
+        etH.setText((r0?.robotY ?: 3).toString())
+
+        val faceIdx = when (r0?.robotDirection ?: RobotDirection.NORTH) {
+            RobotDirection.NORTH -> 0
+            RobotDirection.EAST -> 1
+            RobotDirection.SOUTH -> 2
+            RobotDirection.WEST -> 3
+        }
+        spFacing.setSelection(faceIdx)
+
+        AlertDialog.Builder(requireContext())
+            .setTitle("Set Robot Pose")
+            .setView(dialogView)
+            .setPositiveButton("OK") { _, _ ->
+                val x = blX.text.toString().toIntOrNull() ?: 1
+                val y = blY.text.toString().toIntOrNull() ?: 1
+                val w = etW.text.toString().toIntOrNull() ?: 3
+                val h = etH.text.toString().toIntOrNull() ?: 3
+
+                val facing = when (spFacing.selectedItem as String) {
+                    DirectionUtil.faces[0] -> RobotDirection.NORTH
+                    DirectionUtil.faces[1] -> RobotDirection.EAST
+                    DirectionUtil.faces[2] -> RobotDirection.SOUTH
+                    else -> RobotDirection.WEST
+                }
+
+                viewModel.setRobotPose(x, y, w, h, facing, alsoSend = true)
+            }
+            .setNegativeButton("Cancel", null)
             .show()
     }
 

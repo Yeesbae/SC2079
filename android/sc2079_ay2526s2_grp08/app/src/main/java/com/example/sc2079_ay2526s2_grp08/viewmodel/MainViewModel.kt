@@ -61,7 +61,7 @@ class MainViewModel(
                 next = next.copy(arena = ArenaState.empty(ArenaState.DEFAULT_WIDTH, ArenaState.DEFAULT_HEIGHT))
             }
             if (next.robot == null) {
-                next = next.copy(robot = RobotState(x = 0, y = 0, directionDeg = 0))
+                next = next.copy(robot = RobotState(x = 1, y = 1, directionDeg = 0))
             }
             next
         }
@@ -251,7 +251,7 @@ class MainViewModel(
 
     fun setRobotPose(blX: Int, blY: Int, w: Int, h: Int, facing: RobotDirection, alsoSend: Boolean = true) {
         _state.update { s ->
-            val r0 = s.robot ?: RobotState(0, 0, 0)
+            val r0 = s.robot ?: RobotState(1, 1, 0)
             s.copy(
                 robot = r0.copy(
                     x = blX,
@@ -328,9 +328,12 @@ class MainViewModel(
     }
 
     fun resetAll() {
+        pendingMoves.clear()
+        awaitingAck = false
+
         _state.update {
             it.copy(
-                robot = RobotState(x = 0, y = 0, directionDeg = 0),
+                robot = RobotState(x = 1, y = 1, directionDeg = 0),
                 statusText = null,
                 detections = emptyList(),
                 lastDetection = null,

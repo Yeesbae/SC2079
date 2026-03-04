@@ -26,13 +26,6 @@ internal class BluetoothCommunicationService(
     private val echoTracker = EchoTracker(echoWindow)
     private val lineBuilder = LineBuilder()
 
-    @Volatile private var expectingImageBytes: Int = 0
-    private var imgObstacleId: String? = null
-    private var imgTargetId: String? = null
-    private var imgFace: String? = null
-    private var imgBuf: ByteArray? = null
-    private var imgOff: Int = 0
-
     var onLine: ((String, isEcho: Boolean) -> Unit)? = null
     var onSessionEnded: ((BluetoothManager.DisconnectReason, String?) -> Unit)? = null
     var onSendError: ((String) -> Unit)? = null
@@ -125,58 +118,18 @@ internal class BluetoothCommunicationService(
                     var offset = 0
 
                     while (offset < n) {
-                        if (expectingImageBytes > 0) {
-                            val take = minOf(expectingImageBytes, n - offset)
-
-                            val out = imgBuf ?: ByteArray(expectingImageBytes).also {
-                                imgBuf = it
-                            }
-
-                            System.arraycopy(buf, offset, out, imgOff, take)
-
-                            imgOff += take
-                            expectingImageBytes -= take
-                            offset += take
-
-                            if (expectingImageBytes == 0) {
-                                val obstacleId = imgObstacleId
-                                val targetId = imgTargetId
-                                val face = imgFace
-                                val bytes = imgBuf
-
-                                imgObstacleId = null
-                                imgTargetId = null
-                                imgFace = null
-                                imgBuf = null
-                                imgOff = 0
-
-                                if (obstacleId != null && targetId != null && bytes != null) {
-                                    onImage?.invoke(obstacleId, targetId, face, bytes)
-                                }
-                            }
-
-                            continue
-                        }
-
                         val b = buf[offset]
 
                         if (b == '\n'.code.toByte() || b == '\r'.code.toByte()) {
                             val line = lineBuilder.consumeLine()
 
                             if (line != null) {
-                                val b64 = parseImageBase64(line)
-                                if (b64 != null) {
-                                    onImage?.invoke(b64.obstacleId, b64.targetId, b64.face, b64.bytes)
-                                    continue
-                                }
-                                val hdr = parseImageHeader(line)
-                                if (hdr != null) {
-                                    expectingImageBytes = hdr.len
-                                    imgObstacleId = hdr.obstacleId
-                                    imgTargetId = hdr.targetId
-                                    imgFace = hdr.face
-                                    imgBuf = ByteArray(hdr.len)
-                                    imgOff = 0
+                                if (line.startsWith("IMG,")) {
+                                    val b64 = parseImageBase64(line)
+                                    if (b64 != null) {
+                                        onImage?.invoke(b64.obstacleId, b64.targetId, b64.face, b64.bytes)
+                                        continue
+                                    }
                                 } else {
                                     val isEcho = echoTracker.isEcho(line)
                                     onLine?.invoke(line, isEcho)
@@ -267,47 +220,27 @@ internal class BluetoothCommunicationService(
         fun reset() = synchronized(q) { q.clear() }
     }
 
-    //For debugging purposes using AMDtool for base64 decoding
     private fun parseImageBase64(line: String): ImageBase64? {
-        val parts = line.split(",").map { it.trim() }
-        if (parts.size < 6) return null
-        if (parts[0].uppercase() != "TB64") return null
+        val parts = line.split(",", limit = 4).map { it.trim() }
+
+        if (parts.size < 4) return null
+        if (parts[0].uppercase() != "IMG") return null
 
         val obstacleId = parts[1]
         val targetId = parts[2]
-        val face = parts[3].takeIf { it != "-" && it.isNotBlank() }
-        val typeMarker = parts[4] // "J"
-        val b64 = parts.subList(5, parts.size).joinToString(",") // in case b64 has commas (rare)
+        val b64 = parts[3]
 
         return try {
             val bytes = android.util.Base64.decode(b64, android.util.Base64.DEFAULT)
+
             if (bytes.isEmpty() || bytes.size > 2_000_000) return null
-            ImageBase64(obstacleId, targetId, face, typeMarker, bytes)
+
+            ImageBase64(obstacleId, targetId, null, null, bytes)
         } catch (_: Exception) {
             null
         }
     }
     private data class ImageBase64(val obstacleId: String, val targetId: String, val face: String?, val typeMarker: String?, val bytes: ByteArray)
-
-    //bytes stream detection outside of protocol parser as it is not a linebreak
-    private fun parseImageHeader(line: String): ImageHeader? {
-        val parts = line.split(",").map { it.trim() }
-        if (parts.size < 6) return null
-        if (parts[0].uppercase() != "T") return null
-
-        val obstacleId = parts[1]
-        val targetId = parts[2]
-        val face = parts[3].takeIf { it != "-" && it.isNotBlank() }
-
-        val typeMarker = parts[4]
-        val len = parts[5].toIntOrNull() ?: return null
-
-        if (len <= 0 || len > 2_000_000) return null
-
-        return ImageHeader(obstacleId, targetId, face, typeMarker, len)
-    }
-
-    private data class ImageHeader(val obstacleId: String, val targetId: String, val face: String?, val typeMarker: String?, val len: Int)
 
     private class LineBuilder {
         private val buf = ByteArrayOutputStream()

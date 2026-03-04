@@ -16,8 +16,8 @@ data class RobotState(
     val x: Int,
     val y: Int,
     val directionDeg: Int,
-    val robotX: Int = 3,
-    val robotY: Int = 3
+    val robotX: Int = 4,
+    val robotY: Int = 4
 ) {
 
     val robotDirection: RobotDirection

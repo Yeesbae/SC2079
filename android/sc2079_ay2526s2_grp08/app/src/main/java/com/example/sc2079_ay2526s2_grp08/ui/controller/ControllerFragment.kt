@@ -237,8 +237,8 @@ class ControllerFragment : Fragment(R.layout.fragment_controller) {
 
         val s0 = viewModel.state.value
         val r0 = s0.robot
-        blX.setText((r0?.x ?: 0).toString())
-        blY.setText((r0?.y ?: 0).toString())
+        blX.setText((r0?.x ?: 1).toString())
+        blY.setText((r0?.y ?: 1).toString())
         etW.setText((r0?.robotX ?: 3).toString())
         etH.setText((r0?.robotY ?: 3).toString())
 
@@ -254,8 +254,8 @@ class ControllerFragment : Fragment(R.layout.fragment_controller) {
             .setTitle("Set Robot Pose")
             .setView(dialogView)
             .setPositiveButton("OK") { _, _ ->
-                val x = blX.text.toString().toIntOrNull() ?: 0
-                val y = blY.text.toString().toIntOrNull() ?: 0
+                val x = blX.text.toString().toIntOrNull() ?: 1
+                val y = blY.text.toString().toIntOrNull() ?: 1
                 val w = etW.text.toString().toIntOrNull() ?: 3
                 val h = etH.text.toString().toIntOrNull() ?: 3
 
