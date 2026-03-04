@@ -1,0 +1,5 @@
+opencv-python
+picamera2
+numpy
+pyserial
+pybluez
