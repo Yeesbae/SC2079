@@ -8,6 +8,7 @@ import json
 import time
 from pathAlgo import MazeSolver
 from constants import Direction
+from Util.helper import command_generator
 
 
 class AlgoClient:
@@ -171,7 +172,7 @@ class AlgoClient:
 
     def _calculate_path(self, arena_data):
         """
-        Calculate path using MazeSolver
+        Calculate path using MazeSolver and convert to STM32 commands.
 
         Args:
             arena_data (dict): {
@@ -185,7 +186,10 @@ class AlgoClient:
             }
 
         Returns:
-            list: [{'x': int, 'y': int, 'd': int, 's': int}, ...]
+            dict: {
+                "commands": ["FW10", "BL00", "FW20", "SNAP3_C", "FW10", ..., "FIN"],
+                "path": [{'x': int, 'y': int, 'd': int, 's': int}, ...]
+            }
         """
 
         # Extract grid info
@@ -222,10 +226,27 @@ class AlgoClient:
         optimal_path, total_cost = solver.get_optimal_order_dp(retrying=False)
         print(f"[AlgoClient] Path calculated. Total cost: {total_cost}")
 
-        # Convert CellState objects to dictionaries
+        # Build obstacle dicts for command_generator (needs 'id', 'x', 'y', 'd' as int)
+        obstacle_dicts = []
+        for obs in obstacles:
+            obstacle_dicts.append({
+                'id': obs.get('id'),
+                'x': obs.get('x'),
+                'y': obs.get('y'),
+                'd': obs.get('d', 8)  # Direction int value
+            })
+
+        # Generate compressed STM32 commands from the CellState path
+        stm32_commands = command_generator(optimal_path, obstacle_dicts)
+        print(f"[AlgoClient] Generated {len(stm32_commands)} STM32 commands: {stm32_commands}")
+
+        # Also include raw path for debugging
         path_list = [cell.get_dict() for cell in optimal_path]
 
-        return path_list
+        return {
+            "commands": stm32_commands,
+            "path": path_list
+        }
 
 
 if __name__ == "__main__":
