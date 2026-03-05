@@ -124,21 +124,29 @@ class STM32:
     # ========== Movement Commands ==========
     # Adjust these based on your STM32 command protocol
     
-    def forward(self, distance_cm: int = 10) -> bool:
-        """Move forward"""
-        return self.send(f"FW{distance_cm:03d}")
+    def forward(self, distance_cm: int = 5) -> bool:
+        """Move straight forward"""
+        return self.send(f"SF{distance_cm:03d}")
     
-    def backward(self, distance_cm: int = 10) -> bool:
-        """Move backward"""
-        return self.send(f"BW{distance_cm:03d}")
+    def backward(self, distance_cm: int = 5) -> bool:
+        """Move straight backward"""
+        return self.send(f"SB{distance_cm:03d}")
     
-    def turn_left(self, angle: int = 90) -> bool:
-        """Turn left"""
-        return self.send(f"TL{angle:03d}")
+    def turn_left_forward(self, angle: int = 90) -> bool:
+        """Turn left forward"""
+        return self.send(f"LF{angle:03d}")
     
-    def turn_right(self, angle: int = 90) -> bool:
-        """Turn right"""
-        return self.send(f"TR{angle:03d}")
+    def turn_right_forward(self, angle: int = 90) -> bool:
+        """Turn right forward"""
+        return self.send(f"RF{angle:03d}")
+    
+    def turn_left_backward(self, angle: int = 90) -> bool:
+        """Turn left backward"""
+        return self.send(f"LB{angle:03d}")
+    
+    def turn_right_backward(self, angle: int = 90) -> bool:
+        """Turn right backward"""
+        return self.send(f"RB{angle:03d}")
     
     def stop(self) -> bool:
         """Emergency stop"""
@@ -160,20 +168,14 @@ class STM32:
         # These mappings depend on your model's class names
         IMAGE_TO_COMMAND = {
             # Arrow signs
-            "38": "TR090",   # Right arrow → turn right 90°
-            "39": "TL090",   # Left arrow → turn left 90°
+            "38": "LS090",   # Right arrow → turn right 90°
+            "39": "RS090",   # Left arrow → turn left 90°
             
             # Number signs (example: stop at numbers)
-            "0": "STOP",
-            "1": "FW010",
-            "2": "FW020",
-            "3": "FW030",
-            "4": "FW040",
-            "5": "FW050",
+            "0": "STOP"
             
             # Add more mappings as needed for your model's classes
-            # "bullseye": "STOP",
-            # "circle": "TR090",
+            # "bullseye": "STOP"
         }
         # =============================================================
         

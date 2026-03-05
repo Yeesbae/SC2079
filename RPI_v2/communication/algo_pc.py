@@ -7,56 +7,49 @@ from typing import Optional, Dict, List
 class AlgoPC:
     """
     TCP connection for Algorithm PC communication
-    RPi acts as server, Algorithm PC connects as client
+    RPi acts as TCP client, connects to Algorithm PC server
     """
     def __init__(self):
-        # ========== MODIFY: Change to your RPi IP address ==========
-        self.host = "192.168.8.1"
-        # =============================================================
-        self.port = 5001  # Different port from Image Rec PC (5000)
+        # ========== MODIFY: Change to your Algorithm PC IP address ==========
+        self.host = "192.168.8.100"  # Algorithm PC IP address
+        # =====================================================================
+        self.port = 6000  # Algorithm server port (from algo_server.py)
         self.connected = False
-        self.server_socket = None
-        self.client_socket = None
+        self.socket = None
 
     def connect(self):
         """
-        Act as TCP server, wait for Algorithm PC to connect
+        Connect to Algorithm PC as TCP client
+        Algorithm PC must be running algo_server.py first
         """
-        self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        print("[AlgoPC] Socket established successfully")
-
         try:
-            self.server_socket.bind((self.host, self.port))
-            print(f"[AlgoPC] Socket bound to {self.host}:{self.port}")
+            self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            print(f"[AlgoPC] Connecting to Algorithm PC at {self.host}:{self.port}...")
+            
+            self.socket.connect((self.host, self.port))
+            print("[AlgoPC] Connected to Algorithm PC successfully")
+            
+            self.connected = True
+            return True
+            
         except socket.error as e:
-            print("[AlgoPC] Socket binding failed:", e)
-            self.server_socket.close()
-            sys.exit()
-
-        print("[AlgoPC] Waiting for Algorithm PC connection...")
-        try:
-            self.server_socket.listen(1)
-            self.client_socket, client_address = self.server_socket.accept()
-            print(f"[AlgoPC] Algorithm PC connected from {client_address}")
-        except socket.error as e:
-            print("[AlgoPC] Error accepting connection:", e)
+            print(f"[AlgoPC] Connection failed: {e}")
+            print("[AlgoPC] Make sure:")
+            print("[AlgoPC]   1. Algorithm PC is running algo_server.py")
+            print(f"[AlgoPC]   2. IP address {self.host} is correct")
+            print("[AlgoPC]   3. Both devices are on the same network")
+            print(f"[AlgoPC]   4. Firewall allows port {self.port}")
+            if self.socket:
+                self.socket.close()
             return False
-
-        self.connected = True
-        return True
 
     def disconnect(self):
         """Disconnect from Algorithm PC"""
         try:
-            if self.client_socket:
-                self.client_socket.shutdown(socket.SHUT_RDWR)
-                self.client_socket.close()
-            if self.server_socket:
-                self.server_socket.shutdown(socket.SHUT_RDWR)
-                self.server_socket.close()
-            self.server_socket = None
-            self.client_socket = None
+            if self.socket:
+                self.socket.shutdown(socket.SHUT_RDWR)
+                self.socket.close()
+            self.socket = None
             self.connected = False
             print("[AlgoPC] Disconnected successfully")
         except Exception as e:
@@ -65,7 +58,7 @@ class AlgoPC:
     def send(self, message: str) -> bool:
         """Send string message to Algorithm PC"""
         try:
-            self.client_socket.send(message.encode("utf-8"))
+            self.socket.send(message.encode("utf-8"))
             print(f"[AlgoPC] Sent: {message}")
             return True
         except Exception as e:
@@ -76,7 +69,7 @@ class AlgoPC:
         """Send JSON data to Algorithm PC (for obstacle coordinates)"""
         try:
             message = json.dumps(data)
-            self.client_socket.send(message.encode("utf-8"))
+            self.socket.send(message.encode("utf-8"))
             print(f"[AlgoPC] Sent JSON: {message}")
             return True
         except Exception as e:
@@ -86,7 +79,7 @@ class AlgoPC:
     def receive(self) -> Optional[str]:
         """Receive string message from Algorithm PC"""
         try:
-            data = self.client_socket.recv(4096)
+            data = self.socket.recv(4096)
             message = data.decode("utf-8")
             return message
         except OSError as e:
@@ -96,7 +89,7 @@ class AlgoPC:
     def receive_json(self) -> Optional[Dict]:
         """Receive JSON data from Algorithm PC (for path commands)"""
         try:
-            data = self.client_socket.recv(4096)
+            data = self.socket.recv(4096)
             message = data.decode("utf-8")
             return json.loads(message)
         except json.JSONDecodeError as e:

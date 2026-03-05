@@ -1,12 +1,18 @@
 """
 Task 1 RPi Implementation
 Contains image recognition + STM32 movement control
+
+PC AUTO-SEND MODE:
+- PC automatically sends detected images: "obstacle_id,confidence,image_id"
+- RPi receives and executes STM32 commands based on IMAGE_COMMANDS mapping
+- Use send_seen_command() to reset PC's detection state if needed
 """
 import sys
 import threading
 import time
 from pathlib import Path
 from queue import Queue, Empty
+from typing import Optional
 
 # Add project path
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -29,6 +35,7 @@ class Task1RPI:
     IMAGE_COMMANDS = {
         "38": "TR090",   # Right arrow → turn right 90°
         "39": "TL090",   # Left arrow → turn left 90°
+        "bullseye": "STOP",  # Bullseye → stop
         # Add more mappings as needed
         # "bullseye": None,  # No movement for bullseye
         # "1": None,         # No movement for number 1
@@ -233,25 +240,64 @@ class Task1RPI:
         for waypoint in path:
             self.path_queue.put(waypoint)
     
-    def move_forward(self, distance_cm: int = 10):
-        """Move robot forward"""
+    def move_forward(self, distance_cm: int = 5):
+        """Move robot straight forward"""
         self.stm32.forward(distance_cm)
     
-    def move_backward(self, distance_cm: int = 10):
-        """Move robot backward"""
+    def move_backward(self, distance_cm: int = 5):
+        """Move robot straight backward"""
         self.stm32.backward(distance_cm)
     
-    def turn_left(self, angle: int = 90):
-        """Turn robot left"""
-        self.stm32.turn_left(angle)
+    def turn_left_forward(self, angle: int = 90):
+        """Turn robot left forward"""
+        self.stm32.turn_left_forward(angle)
     
-    def turn_right(self, angle: int = 90):
-        """Turn robot right"""
-        self.stm32.turn_right(angle)
+    def turn_right_forward(self, angle: int = 90):
+        """Turn robot right forward"""
+        self.stm32.turn_right_forward(angle)
+
+    def turn_left_backward(self, angle: int = 90):
+        """Turn robot left backward"""
+        self.stm32.turn_left_backward(angle)
+    
+    def turn_right_backward(self, angle: int = 90):
+        """Turn robot right backward"""
+        self.stm32.turn_right_backward(angle)
+    
+    def send_command(self, command: str) -> Optional[str]:
+        """
+        Send a direct command to STM32 (used for Bluetooth control)
+        
+        Args:
+            command: STM32 command string (e.g., "FW050", "TR090", "STOP")
+            
+        Returns:
+            Response from STM32 or None
+        """
+        if not self.stm32.connected:
+            print("[Task1] STM32 not connected")
+            return None
+        
+        print(f"[Task1] Sending command to STM32: {command}")
+        if self.stm32.send(command):
+            response = self.stm32.receive(timeout=3.0)
+            return response
+        return None
 
     def get_last_image(self) -> str:
         """Get last received image ID"""
         return self.last_image
+    
+    def send_seen_command(self):
+        """
+        Send SEEN command to PC to reset detection state
+        Use this to allow PC to re-detect the same images
+        """
+        try:
+            self.pc.send("SEEN")
+            print("[Task1] Sent SEEN command to PC")
+        except Exception as e:
+            print(f"[Task1] Failed to send SEEN command: {e}")
 
     def stop(self):
         """Stop all threads and connections"""
