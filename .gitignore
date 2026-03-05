@@ -29,7 +29,6 @@ dist/
 
 # YOLO training outputs and models
 **/runs/
-*.pt
 *.weights
 *.onnx
 *.cache
