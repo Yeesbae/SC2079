@@ -115,25 +115,33 @@ def task_process(
     else:
         task = Task2RPI(config)
     
-    # Set up callback to forward image detections to Bluetooth
+    # Set up callback to forward image detections to Bluetooth.
+    # For normal detections, we wait for the binary (on_image_binary) before
+    # sending to BT. Only special non-image cases (FIN, TIMEOUT, SKIPPED) are
+    # sent immediately here.
     def on_image_detected(obstacle_id, image_id, confidence):
-        result = f"TARGET,{obstacle_id},{image_id}"
-        print(f"[Task Process] → BT: {result}")
-        to_bt_queue.put(result)
+        if image_id in ("FIN", "TIMEOUT", "SKIPPED"):
+            result = f"TARGET,{obstacle_id},{image_id}"
+            print(f"[Task Process] → BT: {result}")
+            to_bt_queue.put(result)
+        # For normal detections, wait for on_image_binary to fire (which has the frame)
+    
+    # Set up callback to forward the combined detection + image binary to Bluetooth.
+    # Format: IMG,<obstacle_id>,<image_id>,<base64_jpeg>
+    def on_image_binary(obstacle_id, image_id, b64_jpeg):
+        bt_msg = f"IMG,{obstacle_id},{image_id},{b64_jpeg}"
+        print(f"[Task Process] → BT: IMG,{obstacle_id},{image_id},<{len(b64_jpeg)} b64 chars>")
+        to_bt_queue.put(bt_msg)
     
     if hasattr(task, 'on_image_detected'):
         task.on_image_detected = on_image_detected
+    if hasattr(task, 'on_image_binary'):
+        task.on_image_binary = on_image_binary
     
     task.initialize()
     
     try:
         while not stop_event.is_set():
-            # Get last image and forward to Bluetooth process
-            last_img = task.get_last_image()
-            if last_img:
-                to_bt_queue.put(f"IMG:{last_img}")
-                task.last_image = None  # Clear after forwarding
-            
             # Check for STM32 commands from Bluetooth (manual control)
             if not from_bt_queue.empty():
                 bt_msg = from_bt_queue.get_nowait()

@@ -79,13 +79,21 @@ class Task1RPI:
         
         # Callbacks for external communication (e.g., Bluetooth to Android)
         self.on_image_detected = None  # Callback: on_image_detected(obstacle_id, image_id, confidence)
+        self.on_image_binary = None    # Callback: on_image_binary(obstacle_id, image_id, b64jpeg)
 
     def initialize(self):
         """Initialize connections and start threads"""
         try:
-            # Connect to STM32
+            # Connect to STM32 - try multiple ports
             print("Connecting to STM32...")
-            if not self.stm32.connect():
+            stm32_connected = False
+            ports_to_try = ["/dev/ttyUSB0", "/dev/ttyACM0", "/dev/ttyAMA0"]
+            for port in ports_to_try:
+                self.stm32.port = port
+                if self.stm32.connect():
+                    stm32_connected = True
+                    break
+            if not stm32_connected:
                 print("[WARNING] STM32 not connected - movements disabled")
             
             # Start video stream server first
@@ -124,8 +132,13 @@ class Task1RPI:
         
         Auto-reconnects when ImgPC disconnects: reuses the existing server
         socket to accept a new client without rebinding.
+        
+        Supports both newline-delimited messages (updated pc_client) and
+        legacy messages without newlines (old pc_client).
         """
         print("[Task1] PC receive thread started")
+        recv_buf = b""         # raw byte buffer for accumulating TCP data
+        
         while True:
             # If not connected, wait until initialize() connects us
             if not self.pc.connected:
@@ -133,63 +146,111 @@ class Task1RPI:
                 continue
 
             try:
-                message_rcv = self.pc.receive()
-
+                # Read available data from the socket
+                chunk = self.pc.client_socket.recv(4096)
+                
                 # Empty bytes = client disconnected cleanly
-                if not message_rcv:
+                if not chunk:
                     print("[Task1] ImgPC disconnected (empty recv)")
                     self.pc.connected = False
-                    # Wait for ImgPC to reconnect on the same server socket
+                    recv_buf = b""
                     self._wait_for_imgpc_reconnect()
                     continue
-
-                print(f"[Task1] Received from ImgPC: {message_rcv}")
-
-                if "NONE" in message_rcv:
-                    self.last_image = "NONE"
-
-                elif "," in message_rcv:
-                    # Recognition result: "obstacle_id,confidence,image_id"
-                    msg_split = message_rcv.split(",")
-                    if len(msg_split) == 3:
-                        obstacle_id, conf_str, image_id = msg_split
-                        confidence = None
-                        try:
-                            confidence = float(conf_str)
-                        except ValueError:
-                            pass
-
-                        print(f"[Task1] DETECTED: Image {image_id} for obstacle {obstacle_id} (conf: {confidence})")
-                        self.last_image = image_id
-
-                        # Put detection into queue for execute_commands to consume
-                        self.detection_queue.put({
-                            'obstacle_id': obstacle_id,
-                            'image_id': image_id,
-                            'confidence': confidence
-                        })
-
-                        # Notify external listeners (e.g., send to Android via Bluetooth)
-                        if self.on_image_detected:
-                            self.on_image_detected(obstacle_id, image_id, confidence)
-
-                        # In hardcoded mode, also execute movement
-                        if self.mode == "hardcoded":
-                            self._handle_hardcoded_detection(image_id)
-
-                elif "DETECT" in message_rcv:
-                    obstacle_id = message_rcv.split(",")[1]
-                    print(f"[Task1] Received DETECT command for obstacle {obstacle_id}")
-                    self.current_obstacle_id = obstacle_id
-
-                elif "PERFORM STITCHING" in message_rcv:
-                    num = int(message_rcv.split(",")[1])
-                    print(f"[Task1] Received STITCH command for {num} images")
+                
+                recv_buf += chunk
+                
+                # Process all complete messages in the buffer.
+                # Messages may or may not be newline-terminated depending on
+                # whether the ImgRec PC has the updated pc_client.py.
+                while recv_buf:
+                    # If buffer contains a newline, split on it
+                    if b"\n" in recv_buf:
+                        line, recv_buf = recv_buf.split(b"\n", 1)
+                        message_rcv = line.decode("utf-8", errors="ignore").strip()
+                    else:
+                        # No newline yet — check if this looks like a complete
+                        # short message (legacy mode without \n delimiters).
+                        # IMG_DATA messages are large and need \n to know when
+                        # they're complete, so keep buffering those.
+                        tentative = recv_buf.decode("utf-8", errors="ignore").strip()
+                        if tentative.startswith("IMG_DATA:"):
+                            break  # keep buffering until \n arrives
+                        # Short messages (detections, NONE, DETECT, etc.)
+                        # are < 100 bytes — treat as complete
+                        message_rcv = tentative
+                        recv_buf = b""
+                    
+                    if not message_rcv:
+                        continue
+                    
+                    self._handle_imgpc_message(message_rcv)
 
             except OSError as e:
                 print(f"[Task1] ImgPC connection error: {e}")
                 self.pc.connected = False
+                recv_buf = b""
                 self._wait_for_imgpc_reconnect()
+
+    def _handle_imgpc_message(self, message_rcv: str):
+        """Process a single complete message from the Image Rec PC."""
+        display = message_rcv[:120] + ('...' if len(message_rcv) > 120 else '')
+        print(f"[Task1] Received from ImgPC: {display}")
+
+        if "NONE" in message_rcv:
+            self.last_image = "NONE"
+
+        elif message_rcv.startswith("IMG_DATA:"):
+            # Format: IMG_DATA:<obstacle_id>:<image_id>:<base64_jpeg>
+            try:
+                parts = message_rcv[len("IMG_DATA:"):].split(":", 2)
+                if len(parts) == 3:
+                    img_obstacle_id, img_image_id, b64_jpeg = parts
+                    print(f"[Task1] IMG_DATA received: obstacle={img_obstacle_id}, "
+                          f"image={img_image_id}, size={len(b64_jpeg)} b64 chars")
+                    if self.on_image_binary:
+                        self.on_image_binary(img_obstacle_id, img_image_id, b64_jpeg)
+                else:
+                    print("[Task1] Malformed IMG_DATA message (expected 3 parts)")
+            except Exception as img_err:
+                print(f"[Task1] Failed to handle IMG_DATA: {img_err}")
+
+        elif "," in message_rcv:
+            # Recognition result: "obstacle_id,confidence,image_id"
+            msg_split = message_rcv.split(",")
+            if len(msg_split) == 3:
+                obstacle_id, conf_str, image_id = msg_split
+                confidence = None
+                try:
+                    confidence = float(conf_str)
+                except ValueError:
+                    pass
+
+                print(f"[Task1] DETECTED: Image {image_id} for obstacle {obstacle_id} (conf: {confidence})")
+                self.last_image = image_id
+
+                # Put detection into queue for execute_commands to consume
+                self.detection_queue.put({
+                    'obstacle_id': obstacle_id,
+                    'image_id': image_id,
+                    'confidence': confidence
+                })
+
+                # Notify external listeners (e.g., send to Android via Bluetooth)
+                if self.on_image_detected:
+                    self.on_image_detected(obstacle_id, image_id, confidence)
+
+                # In hardcoded mode, also execute movement
+                if self.mode == "hardcoded":
+                    self._handle_hardcoded_detection(image_id)
+
+            elif "DETECT" in message_rcv:
+                obstacle_id = message_rcv.split(",")[1]
+                print(f"[Task1] Received DETECT command for obstacle {obstacle_id}")
+                self.current_obstacle_id = obstacle_id
+
+            elif "PERFORM STITCHING" in message_rcv:
+                num = int(message_rcv.split(",")[1])
+                print(f"[Task1] Received STITCH command for {num} images")
 
     def _wait_for_imgpc_reconnect(self):
         """
@@ -203,6 +264,7 @@ class Task1RPI:
             print("[Task1] Waiting for ImgPC to reconnect (TCP port 5000)...")
             self.pc.client_socket, addr = self.pc.server_socket.accept()
             self.pc.connected = True
+            self.pc._recv_buffer = b""  # reset line buffer for new connection
             print(f"[Task1] ImgPC reconnected from {addr}")
         except Exception as e:
             print(f"[Task1] ImgPC reconnect failed: {e}")

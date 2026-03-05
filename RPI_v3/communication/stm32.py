@@ -100,7 +100,8 @@ class STM32:
             timeout: Read timeout in seconds
             
         Returns:
-            Response string or None
+            Response string containing 'A' if ACK received, or None on timeout/error.
+            Heartbeat ("HB") messages from STM32 are filtered out.
         """
         if not self.connected or not self.serial:
             return None
@@ -117,17 +118,26 @@ class STM32:
                     data = self.serial.read(self.serial.in_waiting)
                     response += data.decode('utf-8', errors='ignore')
                     
-                    # Check if we received the acknowledgment
+                    # Check if we received the actual acknowledgment ('A')
+                    # Ignore heartbeat ("HB") messages from STM32
                     if 'A' in response:
-                        print(f"[STM32] Received: {response.strip()}")
-                        return response.strip()
+                        # Strip out HB tokens for a clean response
+                        clean = response.replace("HB", "").strip()
+                        print(f"[STM32] Received ACK: {clean}")
+                        return clean if clean else "A"
                 
                 time.sleep(0.01)
             
-            # Timeout - return whatever we got
+            # Timeout - only return if we got a real ACK, ignore heartbeats
             if response:
-                print(f"[STM32] Received (timeout): {response.strip()}")
-                return response.strip()
+                stripped = response.replace("HB", "").strip()
+                if 'A' in stripped:
+                    print(f"[STM32] Received ACK (late): {stripped}")
+                    return stripped
+                else:
+                    print(f"[STM32] Timeout - only heartbeats received, no ACK")
+                    return None
+            print(f"[STM32] Timeout - no response")
             return None
         except Exception as e:
             print(f"[STM32] Receive error: {e}")

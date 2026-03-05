@@ -16,6 +16,7 @@ class PC:
         self.connected = False
         self.server_socket = None
         self.client_socket = None
+        self._recv_buffer = b""  # internal buffer for receive_line()
 
     def connect(self):
         """
@@ -40,6 +41,7 @@ class PC:
             self.server_socket.listen(128)
             self.client_socket, client_address = self.server_socket.accept()
             print("PC connected successfully from client address of", client_address)
+            self._recv_buffer = b""  # reset buffer on new connection
         except socket.error as e:
             print("Error in getting server/client socket:", e)
 
@@ -69,13 +71,32 @@ class PC:
         except Exception as e:
             print("Failed to send message:", e)
 
-    # receive data from PC (PC → RPi)
+    # receive data from PC (PC → RPi) — reads up to 1024 bytes (short messages)
     def receive(self) -> Optional[str]:
         try:
             unclean_message = self.client_socket.recv(1024)
             message = unclean_message.decode("utf-8")
-            # print("Message received from pc:", message)
             return message
+        except OSError as e:
+            print("Message failed to be received:", e)
+            raise e
+
+    # receive a single newline-terminated message (handles large messages like IMG_DATA)
+    def receive_line(self) -> Optional[str]:
+        """
+        Read bytes until a newline delimiter, supporting arbitrarily large messages
+        such as base64-encoded image data.  Uses an internal buffer so that multiple
+        messages arriving in one TCP segment are handled correctly.
+        Returns the message string (without trailing newline), or None on error.
+        """
+        try:
+            while b"\n" not in self._recv_buffer:
+                chunk = self.client_socket.recv(4096)
+                if not chunk:
+                    return None
+                self._recv_buffer += chunk
+            line, self._recv_buffer = self._recv_buffer.split(b"\n", 1)
+            return line.decode("utf-8").strip()
         except OSError as e:
             print("Message failed to be received:", e)
             raise e

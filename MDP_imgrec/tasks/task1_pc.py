@@ -2,7 +2,9 @@
 Task 1 PC-side code - AUTO-SEND MODE
 Receives video stream, performs YOLO recognition, and automatically sends results to RPi
 When a new image is detected, it immediately sends: "obstacle_id,confidence,image_id"
+Then sends the annotated frame as base64 JPEG: "IMG_DATA:obstacle_id:image_id:b64jpeg"
 """
+import base64
 import socket
 import sys
 import threading
@@ -107,7 +109,23 @@ class Task1PC:
                     print(f"[AUTO-SEND] Detected new image: {detected_img_id}, sending to RPi...")
                     print(f"Sending: {message_content}")
                     self.pc_client.send(message_content)
-                    
+
+                    # Also send the best-confidence frame as a base64 JPEG
+                    try:
+                        import cv2
+                        frame_resized = cv2.resize(frame, (320, 320))
+                        _, jpeg_buffer = cv2.imencode(
+                            '.jpg', frame_resized,
+                            [cv2.IMWRITE_JPEG_QUALITY, 50]
+                        )
+                        b64_data = base64.b64encode(jpeg_buffer.tobytes()).decode('utf-8')
+                        img_data_msg = f"IMG_DATA:{self.obstacle_id}:{detected_img_id}:{b64_data}"
+                        self.pc_client.send(img_data_msg)
+                        print(f"[AUTO-SEND] Sent image binary for {detected_img_id} "
+                              f"({len(b64_data)} b64 chars)")
+                    except Exception as img_err:
+                        print(f"[AUTO-SEND] Failed to send image binary: {img_err}")
+
                     self.sent_images.add(detected_img_id)
                     self.stitching_arr.append(detected_img_id)
                     self.obstacle_id += 1

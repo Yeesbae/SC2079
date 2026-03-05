@@ -40,8 +40,11 @@ class PCClient:
             message: Message string to send
         """
         try:
+            # Append newline delimiter so RPi's receive_line() can find message boundaries
+            if not message.endswith("\n"):
+                message = message + "\n"
             self.client_socket.send(message.encode("utf-8"))
-            print(f"Sent to RPi: {message}")
+            print(f"Sent to RPi: {message.strip()}")
         except Exception as e:
             print(f"Failed to send message: {e}")
             raise e

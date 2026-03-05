@@ -252,8 +252,14 @@ class BluetoothHandler:
             # Add newline if not present (Android apps typically expect this)
             if not message.endswith('\n'):
                 message = message + '\n'
-            self.client_socket.send(message.encode("utf-8"))
-            print(f"[Bluetooth] Sent: {message.strip()}")
+            # Use sendall() to guarantee all bytes are sent (important for large messages
+            # like base64-encoded images that exceed a single RFCOMM frame)
+            self.client_socket.sendall(message.encode("utf-8"))
+            # Only print a truncated preview for very long messages
+            display = message.strip()
+            if len(display) > 120:
+                display = display[:120] + f"... ({len(display)} chars total)"
+            print(f"[Bluetooth] Sent: {display}")
             return True
         except Exception as e:
             print(f"[Bluetooth] Send error: {e}")
