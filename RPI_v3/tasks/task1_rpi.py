@@ -205,10 +205,14 @@ class Task1RPI:
                 parts = message_rcv[len("IMG_DATA:"):].split(":", 2)
                 if len(parts) == 3:
                     img_obstacle_id, img_image_id, b64_jpeg = parts
-                    print(f"[Task1] IMG_DATA received: obstacle={img_obstacle_id}, "
+                    # Use the obstacle ID from the current SNAP command
+                    # (authoritative) instead of the one from ImgPC
+                    authoritative_id = self.current_obstacle_id if self.current_obstacle_id else img_obstacle_id
+                    print(f"[Task1] IMG_DATA received: obstacle={authoritative_id} "
+                          f"(imgpc said {img_obstacle_id}), "
                           f"image={img_image_id}, size={len(b64_jpeg)} b64 chars")
                     if self.on_image_binary:
-                        self.on_image_binary(img_obstacle_id, img_image_id, b64_jpeg)
+                        self.on_image_binary(authoritative_id, img_image_id, b64_jpeg)
                 else:
                     print("[Task1] Malformed IMG_DATA message (expected 3 parts)")
             except Exception as img_err:

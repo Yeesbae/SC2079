@@ -53,7 +53,8 @@ class Task1PC:
         self.start_time = time_ns()
         
         # Auto-send variables
-        self.obstacle_id = 1  # Current obstacle ID counter
+        self.obstacle_id = 1  # Fallback obstacle ID counter
+        self.current_snap_obstacle_id = None  # Obstacle ID from latest SNAP command
         self.sent_images = set()  # Track which images have been sent
 
     def start(self):
@@ -103,10 +104,15 @@ class Task1PC:
                     frame
                 )
                 
-                # AUTO-SEND: Send immediately if this image hasn't been sent yet
-                if detected_img_id not in self.sent_images:
-                    message_content = f"{self.obstacle_id},{detected_conf_level},{detected_img_id}"
-                    print(f"[AUTO-SEND] Detected new image: {detected_img_id}, sending to RPi...")
+                # Only send detection if a SNAP command has been received.
+                # This prevents spurious detections from firing before the
+                # RPi asks for one, which would use wrong obstacle IDs.
+                if self.current_snap_obstacle_id is not None and detected_img_id not in self.sent_images:
+                    use_obstacle_id = self.current_snap_obstacle_id
+                    self.current_snap_obstacle_id = None  # consume it — one detection per SNAP
+
+                    message_content = f"{use_obstacle_id},{detected_conf_level},{detected_img_id}"
+                    print(f"[AUTO-SEND] Detected new image: {detected_img_id}, obstacle_id={use_obstacle_id}, sending to RPi...")
                     print(f"Sending: {message_content}")
                     self.pc_client.send(message_content)
 
@@ -119,7 +125,7 @@ class Task1PC:
                             [cv2.IMWRITE_JPEG_QUALITY, 50]
                         )
                         b64_data = base64.b64encode(jpeg_buffer.tobytes()).decode('utf-8')
-                        img_data_msg = f"IMG_DATA:{self.obstacle_id}:{detected_img_id}:{b64_data}"
+                        img_data_msg = f"IMG_DATA:{use_obstacle_id}:{detected_img_id}:{b64_data}"
                         self.pc_client.send(img_data_msg)
                         print(f"[AUTO-SEND] Sent image binary for {detected_img_id} "
                               f"({len(b64_data)} b64 chars)")
@@ -128,7 +134,6 @@ class Task1PC:
 
                     self.sent_images.add(detected_img_id)
                     self.stitching_arr.append(detected_img_id)
-                    self.obstacle_id += 1
                 
                 # Save timestamp (for legacy compatibility)
                 cur_time = time_ns()
@@ -220,6 +225,19 @@ class Task1PC:
                     # Reset sent images to allow re-detection
                     print("Received SEEN command - resetting detection state")
                     self.sent_images.clear()
+
+                if message_rcv.startswith("SNAP"):
+                    # SNAP command format: "SNAP{obstacle_id}_{position}"
+                    # e.g., "SNAP2_L" → obstacle_id = "2"
+                    snap_body = message_rcv[4:]  # Remove "SNAP" prefix
+                    parts = snap_body.split("_")
+                    snap_obstacle_id = parts[0]
+                    self.current_snap_obstacle_id = snap_obstacle_id
+                    # Reset sent_images so the next detection is sent even if
+                    # the same image_id was seen before for a different obstacle
+                    self.sent_images.clear()
+                    print(f"[SNAP] Received SNAP command for obstacle {snap_obstacle_id}, "
+                          f"will use this ID for next detection")
 
                 elif "DETECT" in message_rcv:
                     # Command format: "DETECT,obstacle_id"
