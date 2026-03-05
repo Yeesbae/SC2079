@@ -138,14 +138,16 @@ class AlgoPC:
             print(f"[AlgoPC] Disconnect error: {e}")
 
     def send(self, message: str) -> bool:
-        """Send string message to Algorithm PC"""
+        """Send string message to Algorithm PC (newline-delimited)"""
         if not self.connected or not self.client_socket:
             print("[AlgoPC] Not connected")
             return False
         
         try:
-            self.client_socket.send(message.encode("utf-8"))
-            print(f"[AlgoPC] Sent: {message}")
+            if not message.endswith('\n'):
+                message = message + '\n'
+            self.client_socket.sendall(message.encode("utf-8"))
+            print(f"[AlgoPC] Sent: {message.strip()}")
             return True
         except Exception as e:
             print(f"[AlgoPC] Failed to send: {e}")
@@ -153,15 +155,15 @@ class AlgoPC:
             return False
 
     def send_json(self, data: Dict) -> bool:
-        """Send JSON data to Algorithm PC (for obstacle coordinates)"""
+        """Send JSON data to Algorithm PC (newline-delimited)"""
         if not self.connected or not self.client_socket:
             print("[AlgoPC] Not connected")
             return False
         
         try:
-            message = json.dumps(data)
-            self.client_socket.send(message.encode("utf-8"))
-            print(f"[AlgoPC] Sent JSON: {message}")
+            message = json.dumps(data) + '\n'
+            self.client_socket.sendall(message.encode("utf-8"))
+            print(f"[AlgoPC] Sent JSON: {message.strip()}")
             return True
         except Exception as e:
             print(f"[AlgoPC] Failed to send JSON: {e}")
@@ -170,7 +172,8 @@ class AlgoPC:
 
     def receive(self, timeout: float = 5.0) -> Optional[str]:
         """
-        Receive string message from Algorithm PC
+        Receive a complete newline-delimited message from Algorithm PC
+        Buffers until a full message (ending with newline) is received.
         
         Args:
             timeout: Socket timeout in seconds (default 5.0)
@@ -183,18 +186,26 @@ class AlgoPC:
         
         try:
             self.client_socket.settimeout(timeout)
-            data = self.client_socket.recv(4096)
-            self.client_socket.settimeout(None)
-            if data:
-                message = data.decode("utf-8")
-                print(f"[AlgoPC] Received: {message}")
-                return message
-            else:
-                # Empty data means client disconnected
-                print("[AlgoPC] Client disconnected (recv returned empty)")
-                self.connected = False
-                return None
+            buffer = b''
+            while True:
+                chunk = self.client_socket.recv(4096)
+                if not chunk:
+                    # Empty data means client disconnected
+                    print("[AlgoPC] Client disconnected (recv returned empty)")
+                    self.connected = False
+                    return None
+                buffer += chunk
+                if b'\n' in buffer:
+                    message = buffer[:buffer.index(b'\n')].decode("utf-8")
+                    print(f"[AlgoPC] Received: {message}")
+                    return message
         except socket.timeout:
+            # Return whatever we have if timeout
+            if buffer:
+                message = buffer.decode("utf-8").strip()
+                if message:
+                    print(f"[AlgoPC] Received (partial): {message}")
+                    return message
             return None
         except OSError as e:
             print(f"[AlgoPC] Failed to receive: {e}")

@@ -45,14 +45,14 @@ def command_generator(states, obstacles):
         if states[i].direction == states[i - 1].direction:
             # Forward - Must be (east facing AND x value increased) OR (north facing AND y value increased)
             if (states[i].x > states[i - 1].x and states[i].direction == Direction.EAST) or (states[i].y > states[i - 1].y and states[i].direction == Direction.NORTH):
-                commands.append("FW10")
+                commands.append("SF010")
             # Forward - Must be (west facing AND x value decreased) OR (south facing AND y value decreased)
             elif (states[i].x < states[i-1].x and states[i].direction == Direction.WEST) or (
                     states[i].y < states[i-1].y and states[i].direction == Direction.SOUTH):
-                commands.append("FW10")
+                commands.append("SF010")
             # Backward - All other cases where the previous and current state is the same direction
             else:
-                commands.append("BW10")
+                commands.append("SB010")
 
             # If any of these states has a valid screenshot ID, then add a SNAP command as well to take a picture
             if states[i].screenshot_id != -1:
@@ -110,46 +110,48 @@ def command_generator(states, obstacles):
             continue
 
         # If previous state and current state are not the same direction, it means that there will be a turn command involved
-        # Assume there are 4 turning command: FR, FL, BL, BR (the turn command will turn the robot 90 degrees)
-        # FR00 | FR30: Forward Right;
-        # FL00 | FL30: Forward Left;
-        # BR00 | BR30: Backward Right;
-        # BL00 | BL30: Backward Left;
+        # Turn commands:
+        # RF090: Right Forward turn 90°
+        # LF090: Left Forward turn 90°
+        #
+        # Direction mapping (backward-left maneuver = right turn, backward-right = left turn):
+        # North→East (right turn) = RF090
+        # North→West (left turn) = LF090
 
         # Facing north previously
         if states[i - 1].direction == Direction.NORTH:
-            # Facing east afterwards
+            # Facing east afterwards (right turn)
             if states[i].direction == Direction.EAST:
-                commands.append("BL{}".format(steps))
-            # Facing west afterwards
+                commands.append("RF090")
+            # Facing west afterwards (left turn)
             elif states[i].direction == Direction.WEST:
-                commands.append("BR{}".format(steps))
+                commands.append("LF090")
             else:
                 raise Exception("Invalid turing direction")
 
         elif states[i - 1].direction == Direction.EAST:
             if states[i].direction == Direction.NORTH:
-                commands.append("BR{}".format(steps))
+                commands.append("LF090")
 
             elif states[i].direction == Direction.SOUTH:
-                commands.append("BL{}".format(steps))
+                commands.append("RF090")
             else:
                 raise Exception("Invalid turing direction")
 
         elif states[i - 1].direction == Direction.SOUTH:
             if states[i].direction == Direction.EAST:
-                commands.append("BR{}".format(steps))
+                commands.append("LF090")
 
             elif states[i].direction == Direction.WEST:
-                commands.append("BL{}".format(steps))
+                commands.append("RF090")
             else:
                 raise Exception("Invalid turing direction")
 
         elif states[i - 1].direction == Direction.WEST:
             if states[i].direction == Direction.NORTH:
-                commands.append("BL{}".format(steps))
+                commands.append("RF090")
             elif states[i].direction == Direction.SOUTH:
-                commands.append("BR{}".format(steps))
+                commands.append("LF090")
             else:
                 raise Exception("Invalid turing direction")
         else:
@@ -216,22 +218,22 @@ def command_generator(states, obstacles):
     compressed_commands = [commands[0]]
 
     for i in range(1, len(commands)):
-        # If both commands are BW
-        if commands[i].startswith("BW") and compressed_commands[-1].startswith("BW"):
-            # Get the number of steps of previous command
-            steps = int(compressed_commands[-1][2:])
-            # If steps are not 30, add 10 to the steps
-            if steps != 30:
-                compressed_commands[-1] = "BW{}".format(steps + 10)
+        # If both commands are SB (backward)
+        if commands[i].startswith("SB") and compressed_commands[-1].startswith("SB"):
+            # Get the distance of previous command
+            dist = int(compressed_commands[-1][2:])
+            # If distance is not 030, add 010 to the distance
+            if dist < 30:
+                compressed_commands[-1] = "SB{:03d}".format(dist + 10)
                 continue
 
-        # If both commands are FW
-        elif commands[i].startswith("FW") and compressed_commands[-1].startswith("FW"):
-            # Get the number of steps of previous command
-            steps = int(compressed_commands[-1][2:])
-            # If steps are not 30, add 10 to the steps
-            if steps != 30:
-                compressed_commands[-1] = "FW{}".format(steps + 10)
+        # If both commands are SF (forward)
+        elif commands[i].startswith("SF") and compressed_commands[-1].startswith("SF"):
+            # Get the distance of previous command
+            dist = int(compressed_commands[-1][2:])
+            # If distance is not 030, add 010 to the distance
+            if dist < 30:
+                compressed_commands[-1] = "SF{:03d}".format(dist + 10)
                 continue
         
         # Otherwise, just add as usual

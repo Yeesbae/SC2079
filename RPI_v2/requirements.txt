@@ -1,4 +1,0 @@
-opencv-python
-picamera2
-numpy
-

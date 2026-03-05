@@ -1,2 +1,0 @@
-# Communication module for RPi
-

@@ -8,6 +8,7 @@ import json
 import time
 from pathAlgo import MazeSolver
 from constants import Direction
+from Util.helper import command_generator
 
 
 class AlgoClient:
@@ -55,14 +56,17 @@ class AlgoClient:
         print("[AlgoClient] Disconnected from RPi")
 
     def send(self, message: str) -> bool:
-        """Send string message to RPi"""
+        """Send string message to RPi (newline-delimited)"""
         if not self.connected or not self.socket:
             print("[AlgoClient] Not connected to RPi")
             return False
         
         try:
-            self.socket.send(message.encode('utf-8'))
-            print(f"[AlgoClient] Sent: {message}")
+            # Use newline delimiter for message framing
+            if not message.endswith('\n'):
+                message = message + '\n'
+            self.socket.sendall(message.encode('utf-8'))
+            print(f"[AlgoClient] Sent: {message.strip()}")
             return True
         except Exception as e:
             print(f"[AlgoClient] Send error: {e}")
@@ -70,15 +74,15 @@ class AlgoClient:
             return False
 
     def send_json(self, data: dict) -> bool:
-        """Send JSON data to RPi"""
+        """Send JSON data to RPi (newline-delimited)"""
         if not self.connected or not self.socket:
             print("[AlgoClient] Not connected to RPi")
             return False
         
         try:
-            message = json.dumps(data)
-            self.socket.send(message.encode('utf-8'))
-            print(f"[AlgoClient] Sent JSON: {message}")
+            message = json.dumps(data) + '\n'
+            self.socket.sendall(message.encode('utf-8'))
+            print(f"[AlgoClient] Sent JSON: {message.strip()}")
             return True
         except Exception as e:
             print(f"[AlgoClient] Send error: {e}")
@@ -86,23 +90,31 @@ class AlgoClient:
             return False
 
     def receive(self, timeout: float = 5.0) -> str:
-        """Receive string message from RPi"""
+        """Receive a complete newline-delimited message from RPi"""
         if not self.connected or not self.socket:
             return None
         
         try:
             self.socket.settimeout(timeout)
-            data = self.socket.recv(8192)
-            self.socket.settimeout(None)
-            if data:
-                message = data.decode('utf-8')
-                print(f"[AlgoClient] Received: {message}")
-                return message
-            else:
-                print("[AlgoClient] RPi disconnected")
-                self.connected = False
-                return None
+            buffer = b''
+            while True:
+                chunk = self.socket.recv(4096)
+                if not chunk:
+                    print("[AlgoClient] RPi disconnected")
+                    self.connected = False
+                    return None
+                buffer += chunk
+                if b'\n' in buffer:
+                    message = buffer[:buffer.index(b'\n')].decode('utf-8')
+                    print(f"[AlgoClient] Received: {message}")
+                    return message
         except socket.timeout:
+            # Return whatever we have if timeout
+            if buffer:
+                message = buffer.decode('utf-8').strip()
+                if message:
+                    print(f"[AlgoClient] Received (partial): {message}")
+                    return message
             return None
         except Exception as e:
             print(f"[AlgoClient] Receive error: {e}")
@@ -160,7 +172,7 @@ class AlgoClient:
 
     def _calculate_path(self, arena_data):
         """
-        Calculate path using MazeSolver
+        Calculate path using MazeSolver and convert to STM32 commands.
 
         Args:
             arena_data (dict): {
@@ -174,7 +186,10 @@ class AlgoClient:
             }
 
         Returns:
-            list: [{'x': int, 'y': int, 'd': int, 's': int}, ...]
+            dict: {
+                "commands": ["FW10", "BL00", "FW20", "SNAP3_C", "FW10", ..., "FIN"],
+                "path": [{'x': int, 'y': int, 'd': int, 's': int}, ...]
+            }
         """
 
         # Extract grid info
@@ -211,10 +226,27 @@ class AlgoClient:
         optimal_path, total_cost = solver.get_optimal_order_dp(retrying=False)
         print(f"[AlgoClient] Path calculated. Total cost: {total_cost}")
 
-        # Convert CellState objects to dictionaries
+        # Build obstacle dicts for command_generator (needs 'id', 'x', 'y', 'd' as int)
+        obstacle_dicts = []
+        for obs in obstacles:
+            obstacle_dicts.append({
+                'id': obs.get('id'),
+                'x': obs.get('x'),
+                'y': obs.get('y'),
+                'd': obs.get('d', 8)  # Direction int value
+            })
+
+        # Generate compressed STM32 commands from the CellState path
+        stm32_commands = command_generator(optimal_path, obstacle_dicts)
+        print(f"[AlgoClient] Generated {len(stm32_commands)} STM32 commands: {stm32_commands}")
+
+        # Also include raw path for debugging
         path_list = [cell.get_dict() for cell in optimal_path]
 
-        return path_list
+        return {
+            "commands": stm32_commands,
+            "path": path_list
+        }
 
 
 if __name__ == "__main__":

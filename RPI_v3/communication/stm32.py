@@ -106,10 +106,9 @@ class STM32:
             return None
         
         try:
-            # Clear input buffer first
-            self.serial.reset_input_buffer()
-            
             # Wait for acknowledgment (single 'A' byte)
+            # NOTE: Do NOT call reset_input_buffer() here - STM32 may have already
+            # sent the ACK before we enter receive(), clearing it would lose the ACK.
             start_time = time.time()
             response = ""
             
@@ -154,19 +153,19 @@ class STM32:
     
     def forward(self, distance_cm: int = 10) -> bool:
         """Move forward"""
-        return self.send(f"FW{distance_cm:03d}")
+        return self.send(f"SF{distance_cm:03d}")
     
     def backward(self, distance_cm: int = 10) -> bool:
         """Move backward"""
-        return self.send(f"BW{distance_cm:03d}")
+        return self.send(f"SB{distance_cm:03d}")
     
     def turn_left(self, angle: int = 90) -> bool:
-        """Turn left"""
-        return self.send(f"TL{angle:03d}")
+        """Turn left forward"""
+        return self.send(f"LF{angle:03d}")
     
     def turn_right(self, angle: int = 90) -> bool:
-        """Turn right"""
-        return self.send(f"TR{angle:03d}")
+        """Turn right forward"""
+        return self.send(f"RF{angle:03d}")
     
     def stop(self) -> bool:
         """Emergency stop"""
@@ -188,8 +187,8 @@ class STM32:
         # These mappings depend on your model's class names
         IMAGE_TO_COMMAND = {
             # Arrow signs
-            "38": "TR090",   # Right arrow → turn right 90°
-            "39": "TL090",   # Left arrow → turn left 90°
+            "38": "RF090",   # Right arrow → turn right 90°
+            "39": "LF090",   # Left arrow → turn left 90°
             
             # Number signs (example: stop at numbers)
             "0": "STOP"
