@@ -152,29 +152,29 @@ class MazeSolver:
 
 
     def get_optimal_order_dp(self, retrying):
-        timings = {}
-        start_total = time.perf_counter()
+        # timings = {}
+        # start_total = time.perf_counter()
 
         start_state = self.robot.get_start_state()
 
         # 1️⃣ Get all view positions (6 per obstacle)
-        t0 = time.perf_counter()
+        # t0 = time.perf_counter()
         all_view_positions = self.grid.get_view_obstacle_positions(retrying)
-        timings["get_view_positions"] = time.perf_counter() - t0
+        # timings["get_view_positions"] = time.perf_counter() - t0
         num_obstacles = len(all_view_positions)
 
         # 2️⃣ Flatten all states for one-time A* precomputation
-        t0 = time.perf_counter()
+        # t0 = time.perf_counter()
         all_states = [start_state]
         for views in all_view_positions:
             all_states.extend(views)
 
         # Precompute all A* paths once
         self.path_cost_generator(all_states)
-        timings["a_star_precomputation"] = time.perf_counter() - t0
+        # timings["a_star_precomputation"] = time.perf_counter() - t0
 
         # 3️⃣ Build obstacle-level distance matrix
-        t0 = time.perf_counter()
+        # t0 = time.perf_counter()
         obstacle_cost = np.zeros((num_obstacles + 1, num_obstacles + 1))
 
         # index 0 = start
@@ -198,16 +198,16 @@ class MazeSolver:
 
                 obstacle_cost[i + 1][j + 1] = min_cost
                 obstacle_cost[j + 1][i + 1] = min_cost
-        timings["build_obstacle_cost_matrix"] = time.perf_counter() - t0
+        # timings["build_obstacle_cost_matrix"] = time.perf_counter() - t0
 
         # 4️⃣ Solve TSP on obstacles only
-        t0 = time.perf_counter()
+        # t0 = time.perf_counter()
         obstacle_cost[:, 0] = 0  # allow free return to start
         permutation, _ = solve_tsp_dynamic_programming(obstacle_cost)
-        timings["solve_tsp"] = time.perf_counter() - t0
+        # timings["solve_tsp"] = time.perf_counter() - t0
 
         # Remove start index (0)
-        t0 = time.perf_counter()
+        # t0 = time.perf_counter()
         visit_order = [idx - 1 for idx in permutation if idx != 0]
 
         # 5️⃣ Greedy view selection along obstacle order
@@ -244,13 +244,13 @@ class MazeSolver:
 
             total_cost += best_cost
             current_state = best_view
-        timings["greedy_view_selection"] = time.perf_counter() - t0
+        # timings["greedy_view_selection"] = time.perf_counter() - t0
 
-        timings["total"] = time.perf_counter() - start_total
+        # timings["total"] = time.perf_counter() - start_total
 
-        print("Timing breakdown (seconds):")
-        for k, v in timings.items():
-            print(f"  {k}: {v:.4f}")
+        # print("Timing breakdown (seconds):")
+        # for k, v in timings.items():
+        #     print(f"  {k}: {v:.4f}")
 
         return optimal_path, total_cost
 

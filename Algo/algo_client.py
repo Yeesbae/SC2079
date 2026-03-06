@@ -8,7 +8,7 @@ import json
 import time
 from pathAlgo import MazeSolver
 from constants import Direction
-from Util.helper import command_generator
+from Util.helper import compress_path, command_generator
 
 
 class AlgoClient:
@@ -224,6 +224,8 @@ class AlgoClient:
         # Get optimal path
         print(f"[AlgoClient] Calculating path for {len(obstacles)} obstacles...")
         optimal_path, total_cost = solver.get_optimal_order_dp(retrying=False)
+        compressed_path = compress_path(optimal_path)
+
         print(f"[AlgoClient] Path calculated. Total cost: {total_cost}")
 
         # Build obstacle dicts for command_generator (needs 'id', 'x', 'y', 'd' as int)
@@ -237,11 +239,12 @@ class AlgoClient:
             })
 
         # Generate compressed STM32 commands from the CellState path
-        stm32_commands = command_generator(optimal_path, obstacle_dicts)
+        stm32_commands = command_generator(compressed_path, obstacle_dicts)
+
         print(f"[AlgoClient] Generated {len(stm32_commands)} STM32 commands: {stm32_commands}")
 
         # Also include raw path for debugging
-        path_list = [cell.get_dict() for cell in optimal_path]
+        path_list = [cell.get_dict() for cell in compressed_path]
 
         return {
             "commands": stm32_commands,
