@@ -322,30 +322,36 @@ class MazeSolver:
         y_change = turn_wrt_big_turns[self.enabled_turn][1]
 
         # Map of valid turns (dx, dy) → resulting end direction
+        turn_values_map = {
+            "RF": (8, 5),
+            "LF": (8, 5),
+            "RB": (5, 8),
+            "LB": (5, 8)
+        }
         turn_map = {
             Direction.NORTH: [
-                ((x_change, y_change), Direction.EAST, "RIGHT", "FORWARD"),
-                ((-x_change, y_change), Direction.WEST, "LEFT", "FORWARD"),
-                ((x_change, -y_change), Direction.WEST, "RIGHT", "BACKWARD"),
-                ((-x_change, -y_change), Direction.EAST, "LEFT", "BACKWARD"),
+                ((turn_values_map["RF"][0], turn_values_map["RF"][1]), Direction.EAST, "RIGHT", "FORWARD"),
+                ((-turn_values_map["LF"][0], turn_values_map["LF"][1]), Direction.WEST, "LEFT", "FORWARD"),
+                ((turn_values_map["RB"][0], -turn_values_map["RB"][1]), Direction.WEST, "RIGHT", "BACKWARD"),
+                ((-turn_values_map["LB"][0], -turn_values_map["LB"][1]), Direction.EAST, "LEFT", "BACKWARD"),
             ],
             Direction.SOUTH: [
-                ((x_change, -y_change), Direction.EAST, "LEFT", "FORWARD"),
-                ((-x_change, -y_change), Direction.WEST, "RIGHT", "FORWARD"),
-                ((x_change, y_change), Direction.WEST, "LEFT", "BACKWARD"),
-                ((-x_change, y_change), Direction.EAST, "RIGHT", "BACKWARD"),
+                ((-turn_values_map["RF"][0], -turn_values_map["RF"][1]), Direction.WEST, "RIGHT", "FORWARD"),
+                ((turn_values_map["LF"][0], -turn_values_map["LF"][1]), Direction.EAST, "LEFT", "FORWARD"),
+                ((-turn_values_map["RB"][0], turn_values_map["RB"][1]), Direction.EAST, "RIGHT", "BACKWARD"),
+                ((turn_values_map["LB"][0], turn_values_map["LB"][1]), Direction.WEST, "LEFT", "BACKWARD"),
             ],
             Direction.EAST: [
-                ((x_change, y_change), Direction.NORTH, "LEFT", "FORWARD"),
-                ((-x_change, y_change), Direction.SOUTH, "LEFT", "BACKWARD"),
-                ((-x_change, -y_change), Direction.NORTH, "RIGHT", "BACKWARD"),
-                ((x_change, -y_change), Direction.SOUTH, "RIGHT", "FORWARD"),
+                ((turn_values_map["RF"][1], -turn_values_map["RF"][0]), Direction.SOUTH, "RIGHT", "FORWARD"),
+                ((turn_values_map["LF"][1], turn_values_map["LF"][0]), Direction.NORTH, "LEFT", "FORWARD"),
+                ((-turn_values_map["RB"][1], -turn_values_map["RB"][0]), Direction.NORTH, "RIGHT", "BACKWARD"),
+                ((-turn_values_map["LB"][1], turn_values_map["LB"][0]), Direction.SOUTH, "LEFT", "BACKWARD"),
             ],
             Direction.WEST: [
-                ((-x_change, y_change), Direction.NORTH, "RIGHT", "FORWARD"),
-                ((-x_change, -y_change), Direction.SOUTH, "LEFT", "FORWARD"),
-                ((x_change, y_change), Direction.SOUTH, "RIGHT", "BACKWARD"),
-                ((x_change, -y_change), Direction.NORTH, "LEFT", "BACKWARD"), 
+                ((-turn_values_map["RF"][1], turn_values_map["RF"][0]), Direction.NORTH, "RIGHT", "FORWARD"),
+                ((-turn_values_map["LF"][1], -turn_values_map["LF"][0]), Direction.SOUTH, "LEFT", "FORWARD"),
+                ((turn_values_map["RB"][1], turn_values_map["RB"][0]), Direction.SOUTH, "RIGHT", "BACKWARD"),
+                ((turn_values_map["LB"][1], -turn_values_map["LB"][0]), Direction.NORTH, "LEFT", "BACKWARD"), 
             ]
         }
 

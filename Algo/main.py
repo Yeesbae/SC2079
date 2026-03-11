@@ -116,12 +116,12 @@ def task_1(rpi_conn=None, solver=None):
         # solver.add_obstacle(x=30, y=30, direction=Direction.SOUTH, obstacle_id=4)
         # solver.add_obstacle(x=18, y=18, direction=Direction.WEST,  obstacle_id=5)
 
-        # """5 Obstacles: Test Case 2"""
-        # solver.add_obstacle(x=5,  y=18,  direction=Direction.SOUTH, obstacle_id=1)
-        # solver.add_obstacle(x=25, y=5,  direction=Direction.WEST,  obstacle_id=2)
-        # solver.add_obstacle(x=35,  y=13, direction=Direction.WEST,  obstacle_id=3)
-        # solver.add_obstacle(x=25, y=23, direction=Direction.NORTH, obstacle_id=4)
-        # solver.add_obstacle(x=5, y=33, direction=Direction.EAST,  obstacle_id=5)
+        """5 Obstacles: Test Case 2"""
+        solver.add_obstacle(x=5,  y=18,  direction=Direction.SOUTH, obstacle_id=1)
+        solver.add_obstacle(x=25, y=5,  direction=Direction.WEST,  obstacle_id=2)
+        solver.add_obstacle(x=35,  y=13, direction=Direction.WEST,  obstacle_id=3)
+        solver.add_obstacle(x=25, y=23, direction=Direction.NORTH, obstacle_id=4)
+        solver.add_obstacle(x=5, y=33, direction=Direction.EAST,  obstacle_id=5)
 
         # """8 Obstacles: Test Case 1"""
         # solver.add_obstacle(x=2,  y=15,  direction=Direction.SOUTH, obstacle_id=1)
@@ -133,15 +133,15 @@ def task_1(rpi_conn=None, solver=None):
         # solver.add_obstacle(x=18, y=35, direction=Direction.EAST, obstacle_id=7)
         # solver.add_obstacle(x=34, y=35, direction=Direction.WEST,  obstacle_id=8)
 
-        """8 Obstacles: Test Case 2"""
-        solver.add_obstacle(x=3,  y=15,  direction=Direction.SOUTH, obstacle_id=1)
-        solver.add_obstacle(x=35, y=3,  direction=Direction.NORTH,  obstacle_id=2)
-        solver.add_obstacle(x=19, y=18,  direction=Direction.EAST, obstacle_id=3)
-        solver.add_obstacle(x=19, y=23, direction=Direction.EAST,  obstacle_id=4)
-        solver.add_obstacle(x=8, y=30, direction=Direction.EAST, obstacle_id=5)
-        solver.add_obstacle(x=3, y=35, direction=Direction.SOUTH,  obstacle_id=6)
-        solver.add_obstacle(x=31, y=31, direction=Direction.SOUTH, obstacle_id=7)
-        solver.add_obstacle(x=36, y=36, direction=Direction.SOUTH,  obstacle_id=8)
+        # """8 Obstacles: Test Case 2"""
+        # solver.add_obstacle(x=3,  y=15,  direction=Direction.SOUTH, obstacle_id=1)
+        # solver.add_obstacle(x=35, y=3,  direction=Direction.NORTH,  obstacle_id=2)
+        # solver.add_obstacle(x=19, y=18,  direction=Direction.EAST, obstacle_id=3)
+        # solver.add_obstacle(x=19, y=23, direction=Direction.EAST,  obstacle_id=4)
+        # solver.add_obstacle(x=8, y=30, direction=Direction.EAST, obstacle_id=5)
+        # solver.add_obstacle(x=3, y=35, direction=Direction.SOUTH,  obstacle_id=6)
+        # solver.add_obstacle(x=31, y=31, direction=Direction.SOUTH, obstacle_id=7)
+        # solver.add_obstacle(x=36, y=36, direction=Direction.SOUTH,  obstacle_id=8)
 
         # """8 Obstacles: Test Case 3"""
         # solver.add_obstacle(x=5,  y=18,  direction=Direction.NORTH, obstacle_id=1)

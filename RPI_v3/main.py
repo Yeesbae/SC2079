@@ -1127,12 +1127,19 @@ def run_full_integration_test():
                 
                 continue
             
-            # ---- Movement commands: SF, SB, LF, RF ----
-            if cmd.startswith(("SF", "SB", "LF", "RF")):
+            # ---- Movement commands: SF, SB, LF, RF, LB, RB ----
+            if cmd.startswith(("SF", "SB", "LF", "RF", "LB", "RB")):
                 cmd_type = cmd[:2]
                 cmd_val = cmd[2:]
                 
-                labels = {"SF": "FORWARD", "SB": "BACKWARD", "LF": "LEFT FORWARD TURN", "RF": "RIGHT FORWARD TURN"}
+                labels = {
+                    "SF": "FORWARD", 
+                    "SB": "BACKWARD", 
+                    "LF": "LEFT FORWARD TURN", 
+                    "RF": "RIGHT FORWARD TURN",
+                    "LB": "LEFT BACKWARD TURN",
+                    "RB": "RIGHT BACKWARD TURN"
+                }
                 label = labels.get(cmd_type, cmd_type)
                 
                 if cmd_type in ("SF", "SB"):
@@ -1554,12 +1561,19 @@ def run_stm32_movement_test():
                     print(f"[RPi → BT] TARGET,{obstacle_id},SKIPPED")
                 continue
             
-            # ---- Movement commands: SF, SB, LF, RF ----
-            if cmd.startswith(("SF", "SB", "LF", "RF")):
+            # ---- Movement commands: SF, SB, LF, RF, LB, RB ----
+            if cmd.startswith(("SF", "SB", "LF", "RF", "LB", "RB")):
                 cmd_type = cmd[:2]
                 cmd_val = cmd[2:]
                 
-                labels = {"SF": "FORWARD", "SB": "BACKWARD", "LF": "LEFT FORWARD TURN", "RF": "RIGHT FORWARD TURN"}
+                labels = {
+                    "SF": "FORWARD", 
+                    "SB": "BACKWARD", 
+                    "LF": "LEFT FORWARD TURN", 
+                    "RF": "RIGHT FORWARD TURN",
+                    "LB": "LEFT BACKWARD TURN",
+                    "RB": "RIGHT BACKWARD TURN"
+                }
                 label = labels.get(cmd_type, cmd_type)
                 
                 if cmd_type in ("SF", "SB"):

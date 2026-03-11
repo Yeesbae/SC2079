@@ -302,6 +302,8 @@ class Task1RPI:
                 - SBxxx: Backward xxx cm
                 - LFyyy: Left forward turn yyy degrees (e.g., LF090 = 90°)
                 - RFyyy: Right forward turn yyy degrees (e.g., RF090 = 90°)
+                - LByyy: Left backward turn yyy degrees (e.g., LB090 = 90°)
+                - RByyy: Right backward turn yyy degrees (e.g., RB090 = 90°)
                 - SNAP{id}_{L/C/R}: Take photo for obstacle {id}, camera position L/C/R
                 - FIN: Finished - all obstacles visited
         """
@@ -333,8 +335,8 @@ class Task1RPI:
                 self._handle_snap_command(cmd)
                 continue
             
-            # ---- Movement commands: SF, SB, LF, RF ----
-            if cmd.startswith(("SF", "SB", "LF", "RF")):
+            # ---- Movement commands: SF, SB, LF, RF, LB, RB ----
+            if cmd.startswith(("SF", "SB", "LF", "RF", "LB", "RB")):
                 self._send_stm32_and_wait(cmd)
                 continue
             

@@ -8,7 +8,7 @@ import socket
 import json
 import time
 from pathAlgo import MazeSolver
-from constants import Direction
+from constants import ROBOT_HALF_CELLS, Direction
 from visualizer import MazeVisualizer
 from Util.helper import compress_path, command_generator
 
@@ -154,9 +154,13 @@ class AlgoClient:
                     
                     # Calculate path
                     path = self._calculate_path(arena_data)
+                    rpi_path = {
+                        "commands": path["commands"],
+                        "path": path["path"]
+                    }
                     
                     # Send path back to RPi
-                    path_json = json.dumps(path)
+                    path_json = json.dumps(rpi_path)
                     self.send(path_json)
                     print(f"[AlgoClient] Path sent to RPi\n")
 
@@ -331,7 +335,7 @@ class AlgoClient:
         robot_d = Direction(robot_data.get('d', 0))
 
         # Create solver
-        solver = MazeSolver(grid_x, grid_y, robot_x, robot_y, robot_d)
+        solver = MazeSolver(grid_x, grid_y, robot_x + int(ROBOT_HALF_CELLS), robot_y + int(ROBOT_HALF_CELLS), robot_d)
 
         # Add obstacles
         obstacles = arena_data.get('obstacles', [])

@@ -234,9 +234,9 @@ class Task1PC:
                     parts = snap_body.split("_")
                     snap_obstacle_id = parts[0]
                     self.current_snap_obstacle_id = snap_obstacle_id
-                    # Reset sent_images so the next detection is sent even if
-                    # the same image_id was seen before for a different obstacle
-                    self.sent_images.clear()
+                    # NOTE: Do NOT clear sent_images here. This prevents the same
+                    # image_id from being sent for multiple obstacles if the camera
+                    # still sees it. Use "SEEN" command to explicitly reset if needed.
                     print(f"[SNAP] Received SNAP command for obstacle {snap_obstacle_id}, "
                           f"will use this ID for next detection")
 

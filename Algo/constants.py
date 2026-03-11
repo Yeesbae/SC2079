@@ -48,7 +48,7 @@ ROBOT_HALF_CELLS = ROBOT_SIZE_CELLS / 2   # = 2
 OBSTACLE_SIZE_CM = 10
 OBSTACLE_SIZE_CELLS = (OBSTACLE_SIZE_CM // CELL_SIZE_CM)
 OBSTACLE_HALF_CELLS = OBSTACLE_SIZE_CELLS / 2  # = 1
-OBSTACLE_INFLATION_CELLS = 0     # Inflate an edge of a obstacle by how many cells
+OBSTACLE_INFLATION_CELLS = 0.5     # Inflate an edge of a obstacle by how many cells
 
 
 # =====================
@@ -104,15 +104,17 @@ MOVE_DIRECTION = [
 Robot: 25cm x 25cm (5 cells x 5 cells)
 Obstacle: 10cm x 10cm (2 cells x 2 cells)
 Obstacle Inflation: 0.5 cells
-Turning Radius: 25cm (5 cells)
+Turning: Forward 25cm, Left 40cm
 """
 NORTH_LEFT_MASK = [
-    (-9, -5, 1, 9),
-    (-4, -1, 5, 9),
-    (0, 1, 5, 8),
-    (2, 2, 5, 7),
-    (3, 3, 5, 6),
+    # (3, 4, 5, 7),
+    # (2, 2, 5, 8),
+    (2, 4, 5, 8),
+    (-4, 1, 5, 9),
+    (-5, -5, 0, 9),
+    (-12, -6, 1, 9),
 ]
+
 
 
 # =====================
