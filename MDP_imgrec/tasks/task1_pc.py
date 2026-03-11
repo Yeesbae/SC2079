@@ -117,12 +117,13 @@ class Task1PC:
                     self.pc_client.send(message_content)
 
                     # Also send the best-confidence frame as a base64 JPEG
+                    # Reduced resolution (160x160) and quality (30) for faster BT transmission
                     try:
                         import cv2
-                        frame_resized = cv2.resize(frame, (320, 320))
+                        frame_resized = cv2.resize(frame, (160, 160))
                         _, jpeg_buffer = cv2.imencode(
                             '.jpg', frame_resized,
-                            [cv2.IMWRITE_JPEG_QUALITY, 50]
+                            [cv2.IMWRITE_JPEG_QUALITY, 30]
                         )
                         b64_data = base64.b64encode(jpeg_buffer.tobytes()).decode('utf-8')
                         img_data_msg = f"IMG_DATA:{use_obstacle_id}:{detected_img_id}:{b64_data}"
