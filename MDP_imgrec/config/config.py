@@ -2,6 +2,9 @@
 Configuration module
 Manages model weight paths and parameters for Task1 and Task2
 """
+import os
+_MODELS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'models')
+
 class Config():
     def __init__(self, task1_weights, task2_weights):
         self.is_outdoors = False
@@ -16,8 +19,8 @@ class IndoorsConfig(Config):
         # ========== Modify as needed: set your model file paths ==========
         Config.__init__(
             self,
-            'models/best.pt',
-            'models/best.pt',
+            os.path.join(_MODELS_DIR, 'best.pt'),
+            os.path.join(_MODELS_DIR, 'best.pt'),
         )
         # ================================================
 
@@ -26,8 +29,8 @@ class OutdoorsConfig(Config):
         # ========== Modify as needed: set your model file paths ==========
         Config.__init__(
             self,
-            'models/best.pt',
-            'models/best.pt',
+            os.path.join(_MODELS_DIR, 'best.pt'),
+            os.path.join(_MODELS_DIR, 'best.pt'),
         )
         # ================================================
         self.is_outdoors = True
