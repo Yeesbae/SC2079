@@ -3,11 +3,13 @@ Algo Client - TCP client that connects to RPi server
 Receives arena data from RPi, calculates path, sends it back
 """
 
+import pygame
 import socket
 import json
 import time
 from pathAlgo import MazeSolver
 from constants import Direction
+from visualizer import MazeVisualizer
 from Util.helper import compress_path, command_generator
 
 
@@ -157,6 +159,132 @@ class AlgoClient:
                     path_json = json.dumps(path)
                     self.send(path_json)
                     print(f"[AlgoClient] Path sent to RPi\n")
+
+                    print("Visualizing Paths:\n")
+                    optimal_path = path["full_path"]
+                    obstacles_list = path["obstacles"]
+                    viz = MazeVisualizer(grid_size=path["grid_size"], cell_pixel_size=17)
+                    clock = pygame.time.Clock()
+                    
+                    path_index = 0
+                    running = True
+
+                    animating = False
+                    anim_start = None
+                    anim_end = None
+
+                    auto_play = False
+                    paused = False
+                    anim_frames = 20  # default speed: frames per move
+
+                    while running:
+                        for event in pygame.event.get():
+
+                            if event.type == pygame.QUIT:
+                                running = False
+
+                            if event.type == pygame.KEYDOWN:
+
+                                # Reset
+                                if event.key == pygame.K_r:
+                                    path_index = 0
+                                    animating = False
+                                    auto_play = False
+                                    paused = False
+                                    print(f"[RESET] Index {path_index}: {optimal_path[path_index]}")
+
+                                # Manual Forward
+                                elif event.key == pygame.K_RIGHT:
+                                    if not animating and path_index < len(optimal_path) - 1:
+                                        anim_start = optimal_path[path_index]
+                                        anim_end = optimal_path[path_index + 1]
+                                        animating = True
+                                        auto_play = False
+                                        paused = False
+                                        print(f"[MOVE] Index {path_index} -> {path_index + 1}: {anim_end}")
+
+                                # Manual Backward
+                                elif event.key == pygame.K_LEFT:
+                                    if not animating and path_index > 0:
+                                        anim_start = optimal_path[path_index]
+                                        anim_end = optimal_path[path_index - 1]
+                                        animating = True
+                                        auto_play = False
+                                        paused = False
+                                        print(f"[MOVE] Index {path_index} -> {path_index - 1}: {anim_end}")
+
+                                # Autoplay
+                                elif event.key == pygame.K_g:
+                                    auto_play = True
+                                    paused = False
+                                    if path_index < len(optimal_path) - 1 and not animating:
+                                        anim_start = optimal_path[path_index]
+                                        anim_end = optimal_path[path_index + 1]
+                                        animating = True
+                                        print(f"[AUTOPLAY START] Index {path_index} -> {path_index + 1}: {anim_end}")
+
+                                # Pause autoplay
+                                elif event.key == pygame.K_SPACE:
+                                    paused = True
+                                    auto_play = False
+                                    print("[PAUSE]")
+
+                                # Speed control
+                                elif event.key == pygame.K_EQUALS or event.key == pygame.K_KP_PLUS:  # '+' key
+                                    anim_frames = max(2, anim_frames - 5)  # faster (fewer frames)
+                                    print(f"[SPEED UP] frames per move: {anim_frames}")
+
+                                elif event.key == pygame.K_MINUS or event.key == pygame.K_KP_MINUS:  # '-' key
+                                    anim_frames += 5  # slower (more frames)
+                                    print(f"[SLOW DOWN] frames per move: {anim_frames}")
+
+                        # -----------------------
+                        # Animate current move
+                        # -----------------------
+                        if animating:
+                            viz.animate_transition(
+                                anim_start,
+                                anim_end,
+                                obstacles_list,
+                                optimal_path,
+                                path_index,
+                                anim_frames
+                            )
+
+                            # Finish move
+                            if anim_end == optimal_path[min(path_index + 1, len(optimal_path)-1)]:
+                                path_index += 1
+                            else:
+                                path_index -= 1
+
+                            animating = False
+
+                        # -----------------------
+                        # Autoplay logic
+                        # -----------------------
+                        elif auto_play and not paused:
+                            if path_index < len(optimal_path) - 1:
+                                anim_start = optimal_path[path_index]
+                                anim_end = optimal_path[path_index + 1]
+                                animating = True
+                                print(f"[AUTOPLAY MOVE] Index {path_index} -> {path_index + 1}: {anim_end}")
+                            else:
+                                auto_play = False
+
+                        # -----------------------
+                        # Draw current state
+                        # -----------------------
+                        else:
+                            viz.draw_frame(
+                                optimal_path[path_index],
+                                obstacles_list,
+                                optimal_path,
+                                path_index
+                            )
+
+                        clock.tick(60)
+
+                    pygame.quit()
                     
                 except json.JSONDecodeError:
                     print(f"[AlgoClient] Invalid JSON received from RPi")
@@ -248,7 +376,10 @@ class AlgoClient:
 
         return {
             "commands": stm32_commands,
-            "path": path_list
+            "path": path_list,
+            "full_path": optimal_path,
+            "obstacles": solver.grid.obstacles,
+            "grid_size": (grid_x, grid_y)
         }
 
 
