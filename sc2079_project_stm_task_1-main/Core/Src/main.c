@@ -50,9 +50,11 @@
 #define SERVOCENTER 77 // SERVO_TICKS_FROM_MS(1.50)  // 75
 #define SERVORIGHT  130 // SERVO_TICKS_FROM_MS(2.00)  // 100
 #define SERVOLEFT   45 // SERVO_TICKS_FROM_MS(1.00)  // 50
-#define LEFT_LIMIT  SERVOLEFT + 10
-#define RIGHT_LIMIT SERVORIGHT - 10
+#define LEFT_LIMIT  (SERVOLEFT + 10)    // 55
+#define RIGHT_LIMIT (SERVORIGHT - 10)   // 120
 #define SERVO_ERR_TO_CCR_GAIN  14.0/5.0
+#define TURN_LEFT_INNER_RATIO  0.59f   // inner/outer wheel ratio for left turns
+#define TURN_RIGHT_INNER_RATIO 0.50f   // inner/outer wheel ratio for right turns (lower = tighter)
 
 /* USER CODE END PD */
 
@@ -1213,7 +1215,7 @@ void startMotorTask(void *argument)
 			pwmVal_R = PID_Angle(error_angle);
 //			temp1 = pwmVal_R;
 
-			pwmVal_L = pwmVal_R * (0.59);
+			pwmVal_L = pwmVal_R * TURN_LEFT_INNER_RATIO;
 
 			motor_set_pwm_right(error_angle > 0 ? pwmVal_R : -pwmVal_R);
 			motor_set_pwm_left(error_angle > 0 ? pwmVal_L : -pwmVal_L);
@@ -1223,7 +1225,7 @@ void startMotorTask(void *argument)
 		else if (pwmVal_servo > RIGHT_LIMIT) {
 			temp2 = 1;
 			pwmVal_L = PID_Angle(error_angle);
-			pwmVal_R = pwmVal_L * (0.59);
+			pwmVal_R = pwmVal_L * TURN_RIGHT_INNER_RATIO;
 
 			motor_set_pwm_right(error_angle < 0 ? pwmVal_R : -pwmVal_R);
 			motor_set_pwm_left(error_angle < 0 ? pwmVal_L : -pwmVal_L);
