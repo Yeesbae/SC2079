@@ -24,6 +24,7 @@ def bluetooth_process(
     to_algo_queue: Queue,      # Send obstacle coords to Algorithm
     from_task_queue: Queue,    # Receive image rec results from Task
     to_task_queue: Queue,      # Send commands to Task (future use)
+    from_algo_queue: Queue,    # Receive commands from Algorithm (to forward to Android)
     stop_event: Event,
     config: Config
 ):
@@ -70,6 +71,12 @@ def bluetooth_process(
                 result = from_task_queue.get_nowait()
                 print(f"[BT Process] Sending to Android: {result}")
                 bt.send(str(result))
+            
+            # Send algorithm commands to Android (for visibility)
+            if not from_algo_queue.empty():
+                algo_msg = from_algo_queue.get_nowait()
+                print(f"[BT Process] Algo commands → Android: {str(algo_msg)[:100]}...")
+                bt.send(str(algo_msg))
             
             time.sleep(0.01)
             
@@ -178,6 +185,7 @@ def task_process(
 def algorithm_process(
     from_bt_queue: Queue,      # Receive obstacle coords from Bluetooth
     to_task_queue: Queue,      # Send path/commands to Task
+    to_bt_queue: Queue,        # Send commands to Bluetooth (for Android visibility)
     stop_event: Event,
     config: Config
 ):
@@ -189,6 +197,7 @@ def algorithm_process(
     2. Forwards to Algorithm PC
     3. Receives STM32 commands back: {"commands": [...], "path": [...]}
     4. Puts parsed commands into to_task_queue for Task process
+    5. Sends commands to Bluetooth for Android visibility
     """
     # Import here for multiprocessing spawn compatibility
     from communication.algo_pc import AlgoPC
@@ -242,6 +251,12 @@ def algorithm_process(
                             path_data = json.loads(response)
                             print(f"[Algo Process] Parsed path data with keys: {list(path_data.keys()) if isinstance(path_data, dict) else 'list'}")
                             to_task_queue.put(path_data)
+                            
+                            # Forward commands to Bluetooth for Android visibility
+                            if isinstance(path_data, dict) and "commands" in path_data:
+                                commands = path_data["commands"]
+                                to_bt_queue.put(f"COMMANDS:{json.dumps(commands)}")
+                                print(f"[Algo Process] Sent {len(commands)} commands to BT")
                         except json.JSONDecodeError:
                             print(f"[Algo Process] Non-JSON response, forwarding as string")
                             to_task_queue.put(response)
@@ -1777,6 +1792,7 @@ class MultiProcessManager:
             'task_to_bt': Queue(),      # Image rec results: Task → BT
             'algo_to_task': Queue(),    # Path commands: Algo → Task
             'bt_to_task': Queue(),      # Commands: BT → Task (future)
+            'algo_to_bt': Queue(),      # Commands: Algo → BT (for Android visibility)
         }
         
         # Create processes
@@ -1786,6 +1802,7 @@ class MultiProcessManager:
                 self.queues['bt_to_algo'],
                 self.queues['task_to_bt'],
                 self.queues['bt_to_task'],
+                self.queues['algo_to_bt'],
                 self.stop_event,
                 self.config
             ),
@@ -1811,6 +1828,7 @@ class MultiProcessManager:
             args=(
                 self.queues['bt_to_algo'],
                 self.queues['algo_to_task'],
+                self.queues['algo_to_bt'],
                 self.stop_event,
                 self.config
             ),

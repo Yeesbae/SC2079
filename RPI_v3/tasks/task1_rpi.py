@@ -45,7 +45,7 @@ class Task1RPI:
     # =======================================================
     
     # Max time to wait for image detection at each obstacle (seconds)
-    DETECTION_TIMEOUT = 30.0
+    DETECTION_TIMEOUT = 10.0
     # Time to wait for STM32 acknowledgment (seconds)
     STM32_ACK_TIMEOUT = 10.0
     
@@ -103,15 +103,42 @@ class Task1RPI:
             time.sleep(0.1)
             
             # Connect to PC (TCP server - waits for Image Rec PC to connect)
+            # NOTE: This is blocking - STM32 heartbeats may accumulate during this time
             self.pc.connect()
             
             # Start thread to receive messages from PC
             self.pc_receive_thread = threading.Thread(target=self.pc_receive, daemon=True)
             self.pc_receive_thread.start()
             
+            # Re-sync STM32 after all connections are established
+            # During pc.connect(), STM32 heartbeats may have filled the serial buffer,
+            # or STM32 may have blocked on TX. Clear buffer and verify connection.
+            if stm32_connected:
+                self._resync_stm32()
+            
             print("Task1 RPi initialized successfully")
         except Exception as e:
             print(f"Initialization failed: {e}")
+    
+    def _resync_stm32(self):
+        """
+        Re-synchronize with STM32 after all connections are established.
+        
+        During blocking operations (like waiting for Image Rec PC), STM32 may have:
+        1. Filled its TX buffer with heartbeats and blocked
+        2. Accumulated stale data in RPi's serial RX buffer
+        
+        This method clears the buffer and sends a sync command to reset STM32's state.
+        """
+        if not self.stm32.connected:
+            return
+        
+        print("[Task1] Re-syncing STM32 after connection setup...")
+        
+        if self.stm32.sync(timeout=3.0):
+            print("[Task1] ✓ STM32 re-sync complete")
+        else:
+            print("[Task1] ⚠ STM32 may need manual reset")
 
     def stream_start(self):
         """Start UDP video stream server"""
