@@ -242,7 +242,7 @@ def algorithm_process(
                     
                     # Receive path/commands from Algorithm PC
                     # Use longer timeout since path calculation can take time
-                    response = algo.receive(timeout=30.0)
+                    response = algo.receive(timeout=40.0)
                     if response:
                         print(f"[Algo Process] Received from Algo PC: {response[:200]}...")
                         
