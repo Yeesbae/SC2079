@@ -38,7 +38,7 @@ class Task1PC:
         self.stream_listener = StreamListener(config.task1_weights)
         
         # Task1-specific variables
-        self.IMG_BLACKLIST = ["40"]  # ========== Modify blacklist as needed ==========
+        self.IMG_BLACKLIST = ["41"]  # ========== Modify blacklist as needed ==========
         self.prev_image = None
         self.img_time_dict = {}  # Store timestamps for image IDs
         self.time_advance_ns = 0.75e9  # ========== Time matching parameters, adjust as needed ==========
