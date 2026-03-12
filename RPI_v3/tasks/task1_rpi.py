@@ -45,7 +45,7 @@ class Task1RPI:
     # =======================================================
     
     # Max time to wait for image detection at each obstacle (seconds)
-    DETECTION_TIMEOUT = 30.0
+    DETECTION_TIMEOUT = 10.0
     # Time to wait for STM32 acknowledgment (seconds)
     STM32_ACK_TIMEOUT = 10.0
     
