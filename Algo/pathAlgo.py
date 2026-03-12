@@ -278,22 +278,46 @@ class MazeSolver:
             dx = ob.x + 1 - x
             dy = ob.y + 1 - y
 
+            # # --- Rotate obstacle into NORTH reference frame ---
+            # if direction == Direction.NORTH:
+            #     rdx, rdy = dx, dy
+            # elif direction == Direction.EAST:
+            #     rdx, rdy = -dy, dx
+            # elif direction == Direction.SOUTH:
+            #     rdx, rdy = -dx, -dy
+            # elif direction == Direction.WEST:
+            #     rdx, rdy = dy, -dx
+
+            # # --- Mirror if RIGHT turn ---
+            # if turn_type == "RIGHT":
+            #     rdx = -rdx
+
+            # if move_type == "BACKWARD":
+            #     rdy = -rdy
+            
+            # dx = -8, dy = +5
+            # SOUTH: dx = +8, dy = -5, B: dx = 5, dy = +8
+            # EAST: dx = +5, dy = +8, B: dx = -8, dy = +5
+            # WEST: dx = -5, dy = -8, B: dx = 8, dy = -5
             # --- Rotate obstacle into NORTH reference frame ---
             if direction == Direction.NORTH:
                 rdx, rdy = dx, dy
             elif direction == Direction.EAST:
-                rdx, rdy = -dy, dx
+                rdx, rdy = dy, -dx
             elif direction == Direction.SOUTH:
                 rdx, rdy = -dx, -dy
             elif direction == Direction.WEST:
-                rdx, rdy = dy, -dx
+                rdx, rdy = -dy, dx
 
             # --- Mirror if RIGHT turn ---
-            if turn_type == "RIGHT":
-                rdx = -rdx
-
             if move_type == "BACKWARD":
-                rdy = -rdy
+                rdx, rdy = -rdy, rdx
+
+            if turn_type == "RIGHT":
+                if direction == Direction.NORTH or direction == Direction.SOUTH:
+                    rdx = -rdx
+                elif direction == Direction.EAST or direction == Direction.WEST:
+                    rdy = -rdy
 
             # --- Check against mask intervals ---
             for dx_min, dx_max, dy_min, dy_max in NORTH_LEFT_MASK:
