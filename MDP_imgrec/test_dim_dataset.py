@@ -91,13 +91,13 @@ def test_single_image(model, image_path, brightness=0.5, show=False, conf_thresh
     # Get ground truth
     gt_classes = get_ground_truth(image_path)
     
-    # Dim the image
-    dim_img = dim_image(img, brightness)
+    # Adjust the image brightness
+    adjusted_img = dim_image(img, brightness)
     
-    # Run inference
-    results = model(dim_img, verbose=False, conf=conf_threshold)
+    # Run inference on adjusted image
+    results = model(adjusted_img, verbose=False, conf=conf_threshold)
     
-    # Get detections
+    # Get detections for adjusted image
     detections = []
     for r in results:
         for box in r.boxes:
@@ -123,21 +123,46 @@ def test_single_image(model, image_path, brightness=0.5, show=False, conf_thresh
     }
     
     if show:
-        # Show side by side
-        combined = np.hstack([img, dim_img])
+        # Run inference on original image too
+        orig_results = model(img, verbose=False, conf=conf_threshold)
+        orig_detections = []
+        for r in orig_results:
+            for box in r.boxes:
+                cls_idx = int(box.cls[0])
+                conf = float(box.conf[0])
+                if cls_idx < len(CLASS_NAMES):
+                    orig_detections.append({
+                        'class': CLASS_NAMES[cls_idx],
+                        'confidence': conf
+                    })
+        orig_detected_classes = [d['class'] for d in orig_detections]
         
-        # Add text
-        cv2.putText(combined, "Original", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
-        cv2.putText(combined, f"Dimmed ({brightness*100:.0f}%)", (img.shape[1] + 10, 30), 
+        # Show side by side
+        combined = np.hstack([img, adjusted_img])
+        
+        # Add headers
+        cv2.putText(combined, "Original (100%)", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+        label = "Brighter" if brightness > 1.0 else "Dimmed"
+        cv2.putText(combined, f"{label} ({brightness*100:.0f}%)", (img.shape[1] + 10, 30), 
                     cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
         
-        # Show ground truth and detection
+        # Show ground truth (same for both)
         gt_text = f"GT: {gt_classes}" if gt_classes else "GT: None"
-        det_text = f"Det: {detected_classes}" if detected_classes else "Det: None"
-        cv2.putText(combined, gt_text, (10, img.shape[0] - 40), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 0), 2)
-        cv2.putText(combined, det_text, (10, img.shape[0] - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
+        cv2.putText(combined, gt_text, (10, img.shape[0] - 70), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 0), 2)
         
-        cv2.imshow("Dim Test", combined)
+        # Show detection for ORIGINAL (left side)
+        orig_det_text = f"Det: {orig_detected_classes}" if orig_detected_classes else "Det: None"
+        orig_conf_text = f"Conf: {orig_detections[0]['confidence']:.2f}" if orig_detections else ""
+        cv2.putText(combined, orig_det_text, (10, img.shape[0] - 40), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
+        cv2.putText(combined, orig_conf_text, (10, img.shape[0] - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (200, 200, 200), 2)
+        
+        # Show detection for ADJUSTED (right side)
+        adj_det_text = f"Det: {detected_classes}" if detected_classes else "Det: None"
+        adj_conf_text = f"Conf: {detections[0]['confidence']:.2f}" if detections else ""
+        cv2.putText(combined, adj_det_text, (img.shape[1] + 10, img.shape[0] - 40), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
+        cv2.putText(combined, adj_conf_text, (img.shape[1] + 10, img.shape[0] - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (200, 200, 200), 2)
+        
+        cv2.imshow("Brightness Test", combined)
         key = cv2.waitKey(0)
         if key == ord('q'):
             return None  # Signal to quit
