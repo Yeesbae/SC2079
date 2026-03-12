@@ -1804,16 +1804,15 @@ def run_no_bt_test():
     
     # ========== HARDCODED OBSTACLE DATA ==========
     # Modify this to test different obstacle configurations
-    # Format: {"obstacles": [...], "robot_x": x, "robot_y": y, "robot_dir": dir}
+    # Format: {"obstacles": [...], "robot": {"x":1,"y":1,"d":0}, "grid_size": {"x":40,"y":40}}
     SAMPLE_OBSTACLES = {
         "obstacles": [
-            {"id": 1, "x": 4, "y": 14, "d": 4},    # d: 0=N, 2=E, 4=S, 6=W
-            {"id": 2, "x": 14, "y": 9, "d": 6},
-            {"id": 3, "x": 17, "y": 17, "d": 4},
+            {"id": 1, "x": 4, "y": 14, "d": 4, "width": 2, "length": 2},    # d: 0=N, 2=E, 4=S, 6=W
+            {"id": 2, "x": 14, "y": 9, "d": 6, "width": 2, "length": 2},
+            {"id": 3, "x": 17, "y": 17, "d": 4, "width": 2, "length": 2},
         ],
-        "robot_x": 1,
-        "robot_y": 1,
-        "robot_dir": 0,  # 0=N, 2=E, 4=S, 6=W
+        "robot": {"x": 1, "y": 1, "d": 0},  # 0=N, 2=E, 4=S, 6=W
+        "grid_size": {"x": 40, "y": 40},
         "mode": "simulator",
     }
     # ============================================
@@ -2235,13 +2234,12 @@ def run_no_bt_full():
     # ========== HARDCODED OBSTACLE DATA ==========
     SAMPLE_OBSTACLES = {
         "obstacles": [
-            {"id": 1, "x": 4, "y": 14, "d": 4},
-            {"id": 2, "x": 14, "y": 9, "d": 6},
-            {"id": 3, "x": 17, "y": 17, "d": 4},
+            {"id": 1, "x": 4, "y": 14, "d": 4, "width": 2, "length": 2},
+            {"id": 2, "x": 14, "y": 9, "d": 6, "width": 2, "length": 2},
+            {"id": 3, "x": 17, "y": 17, "d": 4, "width": 2, "length": 2},
         ],
-        "robot_x": 1,
-        "robot_y": 1,
-        "robot_dir": 0,
+        "robot": {"x": 1, "y": 1, "d": 0},
+        "grid_size": {"x": 40, "y": 40},
         "mode": "simulator",
     }
     # ============================================
