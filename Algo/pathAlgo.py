@@ -7,7 +7,7 @@ from Entities.Bot import Robot
 from Entities.Cell import CellState
 from Entities.Obstacle import Obstacle
 from Entities.Grid import Grid
-from constants import Direction, MOVE_DIRECTION, TURN_FACTOR, NORTH_LEFT_MASK, TURN_RADIUS, SMALL_TURN
+from constants import Direction, MOVE_DIRECTION, TURN_FACTOR, NORTH_LEFT_MASK, NORTH_BACKWARD_LEFT_MASK, TURN_RADIUS, SMALL_TURN
 from python_tsp.exact import solve_tsp_dynamic_programming
 
 turn_wrt_big_turns = [[0 * TURN_RADIUS, 0 * TURN_RADIUS], SMALL_TURN]
@@ -278,53 +278,32 @@ class MazeSolver:
             dx = ob.x + 1 - x
             dy = ob.y + 1 - y
 
-            # # --- Rotate obstacle into NORTH reference frame ---
-            # if direction == Direction.NORTH:
-            #     rdx, rdy = dx, dy
-            # elif direction == Direction.EAST:
-            #     rdx, rdy = -dy, dx
-            # elif direction == Direction.SOUTH:
-            #     rdx, rdy = -dx, -dy
-            # elif direction == Direction.WEST:
-            #     rdx, rdy = dy, -dx
-
-            # # --- Mirror if RIGHT turn ---
-            # if turn_type == "RIGHT":
-            #     rdx = -rdx
-
-            # if move_type == "BACKWARD":
-            #     rdy = -rdy
-            
-            # dx = -8, dy = +5
-            # SOUTH: dx = +8, dy = -5, B: dx = 5, dy = +8
-            # EAST: dx = +5, dy = +8, B: dx = -8, dy = +5
-            # WEST: dx = -5, dy = -8, B: dx = 8, dy = -5
             # --- Rotate obstacle into NORTH reference frame ---
             if direction == Direction.NORTH:
                 rdx, rdy = dx, dy
             elif direction == Direction.EAST:
-                rdx, rdy = dy, -dx
+                rdx, rdy = -dy, dx
             elif direction == Direction.SOUTH:
                 rdx, rdy = -dx, -dy
             elif direction == Direction.WEST:
-                rdx, rdy = -dy, dx
+                rdx, rdy = dy, -dx
 
             # --- Mirror if RIGHT turn ---
-            if move_type == "BACKWARD":
-                rdx, rdy = -rdy, rdx
-
             if turn_type == "RIGHT":
-                if direction == Direction.NORTH or direction == Direction.SOUTH:
-                    rdx = -rdx
-                elif direction == Direction.EAST or direction == Direction.WEST:
-                    rdy = -rdy
+                rdx = -rdx
 
             # --- Check against mask intervals ---
-            for dx_min, dx_max, dy_min, dy_max in NORTH_LEFT_MASK:
-                if dx_min <= rdx <= dx_max and dy_min <= rdy <= dy_max:
-                    return False
+            if move_type == "BACKWARD":
+                for dx_min, dx_max, dy_min, dy_max in NORTH_BACKWARD_LEFT_MASK:
+                    if dx_min <= rdx <= dx_max and dy_min <= rdy <= dy_max:
+                        return False
+            else:
+                for dx_min, dx_max, dy_min, dy_max in NORTH_LEFT_MASK:
+                    if dx_min <= rdx <= dx_max and dy_min <= rdy <= dy_max:
+                        return False
 
         return True
+
 
     def get_neighbors(self, x, y, direction):
         neighbors = []
