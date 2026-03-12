@@ -49,13 +49,14 @@
 
 #define SERVOCENTER 77 // SERVO_TICKS_FROM_MS(1.50)  // 75
 #define SERVORIGHT  130 // SERVO_TICKS_FROM_MS(2.00)  // 100
-#define SERVOLEFT   45 // SERVO_TICKS_FROM_MS(1.00)  // 50
+#define SERVOLEFT   54 // SERVO_TICKS_FROM_MS(1.00)  // 50
 #define LEFT_LIMIT  (SERVOLEFT + 10)    // 55
 #define RIGHT_LIMIT (SERVORIGHT - 10)   // 120
 #define SERVO_ERR_TO_CCR_GAIN  14.0/5.0
 #define TURN_LEFT_INNER_RATIO  0.59f   // inner/outer wheel ratio for left turns
-#define TURN_RIGHT_INNER_RATIO 0.50f   // inner/outer wheel ratio for right turns (lower = tighter)
-
+#define TURN_RIGHT_INNER_RATIO 0.5f   // inner/outer wheel ratio for right turns (lower = tighter)
+#define TURN_RIGHT_SPEED_SCALE 1.2f
+#define TURN_LEFT_SPEED_SCALE 1.2f
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -343,7 +344,7 @@ int main(void)
 
   /* Create the thread(s) */
   /* creation of defaultTask */
-  defaultTaskHandle = osThreadNew(StartDefaultTask, NULL, &defaultTask_attributes);
+  //defaultTaskHandle = osThreadNew(StartDefaultTask, NULL, &defaultTask_attributes);
 
   /* creation of communicateTask */
   communicateTaskHandle = osThreadNew(startCommunicateTask, NULL, &communicateTask_attributes);
@@ -843,10 +844,7 @@ void moveCarStraight(double distance) {
 	times_acceptable = 0;
 	rightTarget = rightEncoderVal + distance;
 	leftTarget = leftEncoderVal + distance;
-	// Non-blocking wait with osDelay to allow other tasks to run
-	while (finishCheck()) {
-		osDelay(10);  // Yield to scheduler - prevents blocking other tasks
-	}
+	while (finishCheck());
 }
 
 void moveCarStop() {
@@ -857,25 +855,26 @@ void moveCarStop() {
 
 void moveCarRight(double angle) {
 	pwmVal_servo = SERVORIGHT;
-//	osDelay(300);
+	osDelay(300);
 	e_brake = 0;
 	times_acceptable = 0;
-	target_angle -= angle;
-	// Non-blocking wait with osDelay to allow other tasks to run
-	while (finishCheck()) {
-		osDelay(10);  // Yield to scheduler - prevents blocking other tasks
+	//target_angle -= angle;
+	target_angle = total_angle - angle;
+	while (finishCheck()){
+		osDelay(10);
 	}
 }
 
 void moveCarLeft(double angle) {
-	pwmVal_servo = SERVOLEFT;
-//	osDelay(300);
+//
+		pwmVal_servo = SERVOLEFT;
+	osDelay(300);
 	e_brake = 0;
 	times_acceptable = 0;
-	target_angle += angle;
-	// Non-blocking wait with osDelay to allow other tasks to run
-	while (finishCheck()) {
-		osDelay(10);  // Yield to scheduler - prevents blocking other tasks
+	//target_angle += angle;
+	target_angle = total_angle + angle;
+	while (finishCheck()){
+		osDelay(10);
 	}
 }
 
@@ -1031,19 +1030,60 @@ void StartDefaultTask(void *argument)
 
 	for (;;){
 		pwmVal_servo = SERVOCENTER;
-		osDelay(3000);
+		osDelay(500);
 
-		moveCarStraight(100);
-		osDelay(3000);
+//		moveCarStraight(50);
+//		osDelay(1500);
 
-		moveCarLeft(90);
-		osDelay(3000);
+//		moveCarRight(-90);
+//		osDelay(500);
 
-		moveCarStraight(-100);
-		osDelay(3000);
+//		moveCarStraight(60);
+//		osDelay(500);
 
-		moveCarRight(270);
-		osDelay(3000);
+//		moveCarLeft(-90);
+//		osDelay(500);
+//
+//		moveCarStraight(40);
+//		osDelay(500);
+//
+//		moveCarLeft(90);
+//		osDelay(1500);
+
+
+//second turn
+//		moveCarRight(90);
+//		osDelay(500);
+//
+//		moveCarStraight(60);
+//		osDelay(500);
+//
+//		moveCarLeft(90);
+//		osDelay(500);
+//
+//		moveCarStraight(40);
+//		osDelay(500);
+
+//		moveCarLeft(90);
+//		osDelay(1500);
+
+
+//third
+//		moveCarRight(90);
+//		osDelay(500);
+//
+//		moveCarStraight(60);
+//		osDelay(500);
+//
+//		moveCarLeft(90);
+//		osDelay(500);
+//
+//		moveCarStraight(60);
+//		osDelay(500);
+//
+//		moveCarLeft(90);
+//		osDelay(500);
+
 
 		vTaskSuspend(NULL);
 	}
@@ -1082,19 +1122,14 @@ void startCommunicateTask(void *argument)
 	  }
 
 	  magnitude = 0;
-	  // Check for GYROR reset command OR valid movement command
-	  int isGyroReset = (rxBuffer_working[0] == 'G' && rxBuffer_working[1] == 'Y' 
-	                     && rxBuffer_working[2] == 'R' && rxBuffer_working[3] == 'O' 
-	                     && rxBuffer_working[4] == 'R');
-	  
-	  int isValidCmd = (rxBuffer_working[0] == 'S' || rxBuffer_working[0] == 'R'
-	                    || rxBuffer_working[0] == 'L' || rxBuffer_working[0] == 'U')
-	                   && (rxBuffer_working[1] == 'F' || rxBuffer_working[1] == 'B')
-	                   && (rxBuffer_working[2] >= '0' && rxBuffer_working[2] <= '9')
-	                   && (rxBuffer_working[3] >= '0' && rxBuffer_working[3] <= '9')
-	                   && (rxBuffer_working[4] >= '0' && rxBuffer_working[4] <= '9');
-	  
-	  if (isGyroReset || isValidCmd) {
+	  if ((rxBuffer_working[0] == 'G' && rxBuffer_working[1] == 'Y' && rxBuffer_working[2] == 'R'
+	      && rxBuffer_working[3] == 'O' && rxBuffer_working[4] == 'R')
+	      || ((rxBuffer_working[0] == 'S' || rxBuffer_working[0] == 'R'
+	          || rxBuffer_working[0] == 'L' || rxBuffer_working[0] == 'U')
+	          && (rxBuffer_working[1] == 'F' || rxBuffer_working[1] == 'B')
+	          && (rxBuffer_working[2] >= '0' && rxBuffer_working[2] <= '9')
+	          && (rxBuffer_working[3] >= '0' && rxBuffer_working[3] <= '9')
+	          && (rxBuffer_working[4] >= '0' && rxBuffer_working[4] <= '9'))) {
 
 	  			magnitude = ((int) (rxBuffer_working[2]) - 48) * 100
 	  					+ ((int) (rxBuffer_working[3]) - 48) * 10
@@ -1103,6 +1138,9 @@ void startCommunicateTask(void *argument)
 	  			if (rxBuffer_working[1] == 'B') {
 	  				magnitude *= -1;
 	  			}
+
+	  			// Send acknowledgment BEFORE the blocking movement call
+	  			HAL_UART_Transmit(&huart3, (uint8_t*) &ack, 1, 0xFFFF);
 
 	  			switch (rxBuffer_working[0]) {
 	  			case 'S':
@@ -1147,12 +1185,7 @@ void startCommunicateTask(void *argument)
 	  			}
 	  		}
 
-	  		if (flagDone == 1) {
-	  			HAL_UART_Transmit(&huart3, (uint8_t*) &ack, 1, 0xFFFF);
-	  			flagDone = 0;
-	  		}
-
-	  		// Task delay removed - blocking on semaphore provides timing
+	  	// Task delay removed - blocking on semaphore provides timing
   }
   /* USER CODE END startCommunicateTask */
 }
@@ -1212,9 +1245,7 @@ void startMotorTask(void *argument)
 		// left
 		if (pwmVal_servo < LEFT_LIMIT) {
 			temp2 = 0;
-			pwmVal_R = PID_Angle(error_angle);
-//			temp1 = pwmVal_R;
-
+			pwmVal_R = (int) (PID_Angle(error_angle) * TURN_LEFT_SPEED_SCALE);
 			pwmVal_L = pwmVal_R * TURN_LEFT_INNER_RATIO;
 
 			motor_set_pwm_right(error_angle > 0 ? pwmVal_R : -pwmVal_R);
@@ -1224,7 +1255,7 @@ void startMotorTask(void *argument)
 		// right
 		else if (pwmVal_servo > RIGHT_LIMIT) {
 			temp2 = 1;
-			pwmVal_L = PID_Angle(error_angle);
+			pwmVal_L = (int)(PID_Angle(error_angle) * TURN_RIGHT_SPEED_SCALE);
 			pwmVal_R = pwmVal_L * TURN_RIGHT_INNER_RATIO;
 
 			motor_set_pwm_right(error_angle < 0 ? pwmVal_R : -pwmVal_R);
@@ -1529,12 +1560,9 @@ void startOLEDTask(void *argument)
 			(unsigned int)huart3.RxState, (int)huart3.RxXferCount);
 	OLED_ShowString(0, 48, (uint8_t*)line5);
 
-	// Send periodic heartbeat to Python (every ~2 seconds) with task counters
+	// Send periodic heartbeat to Python (every ~2 seconds)
 	if (cnt_oled % 20 == 0) {
-		char debug[80];
-		snprintf(debug, sizeof(debug), "HB C:%lu M:%lu E:%lu G:%lu U:%lu\r\n",
-		         cnt_communicate, cnt_motor, cnt_encoder, cnt_gyro, cnt_ultrasonic);
-		HAL_UART_Transmit(&huart3, (uint8_t*)debug, strlen(debug), 50);
+		HAL_UART_Transmit(&huart3, (uint8_t*)"HB\r\n", 4, 10);
 	}
 
 	OLED_Refresh_Gram();
