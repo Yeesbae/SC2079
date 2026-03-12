@@ -30,6 +30,11 @@ class STM32:
         """
         Open serial connection to STM32
         
+        NOTE: Opening the serial port may toggle DTR, causing STM32 to reset.
+        After connection, there may be a delay before STM32 is ready.
+        If other blocking operations follow (e.g., waiting for PC connection),
+        use flush_input() and sync() to re-establish clean communication.
+        
         Returns:
             True if connected successfully
         """
@@ -57,6 +62,57 @@ class STM32:
             print(f"[STM32] Try: ls /dev/tty* to find correct port")
             self.connected = False
             return False
+    
+    def flush_input(self) -> int:
+        """
+        Clear any accumulated data in the serial receive buffer.
+        
+        Call this after any blocking operation (e.g., waiting for network connections)
+        to clear stale heartbeats or other accumulated data from STM32.
+        
+        Returns:
+            Number of bytes cleared
+        """
+        if not self.connected or not self.serial:
+            return 0
+        
+        try:
+            bytes_waiting = self.serial.in_waiting
+            if bytes_waiting > 0:
+                self.serial.read(bytes_waiting)
+                print(f"[STM32] Flushed {bytes_waiting} bytes from input buffer")
+            return bytes_waiting
+        except Exception as e:
+            print(f"[STM32] Flush error: {e}")
+            return 0
+    
+    def sync(self, timeout: float = 3.0) -> bool:
+        """
+        Verify STM32 is responsive by sending a no-op command.
+        
+        Use this after long blocking operations to ensure STM32 hasn't
+        hung due to TX buffer overflow (from accumulated heartbeats).
+        
+        Returns:
+            True if STM32 responded with ACK
+        """
+        if not self.connected:
+            return False
+        
+        # Clear buffer first
+        self.flush_input()
+        time.sleep(0.1)
+        self.flush_input()
+        
+        # Send no-op command (forward 0cm)
+        if self.send("SF000"):
+            response = self.receive(timeout=timeout)
+            if response and 'A' in response:
+                print(f"[STM32] Sync OK")
+                return True
+        
+        print(f"[STM32] Sync failed - no ACK (may need manual reset)")
+        return False
     
     def disconnect(self):
         """Close serial connection"""
