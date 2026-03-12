@@ -368,11 +368,20 @@
                     android:text="Robot: (x,y,dir)"
                     android:layout_marginTop="6dp"/>
 
+                <TextView
+                    android:id="@+id/tvRunTimer"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="Run Time: 00:00"
+                    android:textSize="14sp"
+                    android:textStyle="bold"
+                    android:paddingTop="6dp"/>
+
                 <Button
                     android:id="@+id/btnExplore"
                     android:layout_width="match_parent"
                     android:layout_height="36dp"
-                    android:text="Start Exploration"
+                    android:text="Start Explore"
                     android:layout_marginTop="8dp"/>
 
                 <Button
@@ -380,20 +389,6 @@
                     android:layout_width="match_parent"
                     android:layout_height="36dp"
                     android:text="Start Fastest Path"
-                    android:layout_marginTop="6dp"/>
-
-                <Button
-                    android:id="@+id/btnStop"
-                    android:layout_width="match_parent"
-                    android:layout_height="36dp"
-                    android:text="STOP"
-                    android:layout_marginTop="6dp"/>
-
-                <Button
-                    android:id="@+id/btnClearLog"
-                    android:layout_width="match_parent"
-                    android:layout_height="36dp"
-                    android:text="Clear Log"
                     android:layout_marginTop="6dp"/>
 
                 <Button

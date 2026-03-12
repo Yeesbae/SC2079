@@ -226,7 +226,8 @@ internal class BluetoothCommunicationService(
         if (parts.size < 4) return null
         if (parts[0].uppercase() != "IMG") return null
 
-        val obstacleId = parts[1]
+        val obstacleId = if(parts[1].startsWith("B"))
+            parts[1] else "B${parts[1]}"
         val targetId = parts[2]
         val b64 = parts[3]
 

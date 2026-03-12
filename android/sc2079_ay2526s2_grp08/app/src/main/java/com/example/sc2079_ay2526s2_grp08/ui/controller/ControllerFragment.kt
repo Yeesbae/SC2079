@@ -15,6 +15,7 @@ import androidx.lifecycle.repeatOnLifecycle
 import com.example.sc2079_ay2526s2_grp08.MainActivity
 import com.example.sc2079_ay2526s2_grp08.R
 import com.example.sc2079_ay2526s2_grp08.domain.ArenaState
+import com.example.sc2079_ay2526s2_grp08.domain.ExecutionMode
 import com.example.sc2079_ay2526s2_grp08.domain.RobotDirection
 import com.example.sc2079_ay2526s2_grp08.domain.util.DirectionUtil
 import com.example.sc2079_ay2526s2_grp08.ui.arena.ArenaView
@@ -33,8 +34,10 @@ class ControllerFragment : Fragment(R.layout.fragment_controller) {
         val tvRobotLoc = view.findViewById<TextView>(R.id.tvRobotLoc)
         val tvChat = view.findViewById<TextView>(R.id.tvChatTranscript)
         val etChat = view.findViewById<EditText>(R.id.etChatInput)
+        var lastChatText = ""
         val btnChatSend = view.findViewById<Button>(R.id.btnChatSend)
         val chatScroll = view.findViewById<android.widget.ScrollView>(R.id.chatScroll)
+        val tvRunTimer = view.findViewById<TextView>(R.id.tvRunTimer)
 
         btnChatSend?.setOnClickListener {
             val text = etChat?.text?.toString().orEmpty().trim()
@@ -88,8 +91,11 @@ class ControllerFragment : Fragment(R.layout.fragment_controller) {
                             "[$tag] ${e.text}"
                         }
 
-                    tvChat?.text = chatLines
-                    chatScroll?.post { chatScroll.fullScroll(View.FOCUS_DOWN) }
+                    if (chatLines != lastChatText) {
+                        tvChat?.text = chatLines
+                        chatScroll?.post { chatScroll.fullScroll(View.FOCUS_DOWN) }
+                        lastChatText = chatLines
+                    }
 
                     val r = s.robot
                     if (r != null) {
@@ -103,6 +109,15 @@ class ControllerFragment : Fragment(R.layout.fragment_controller) {
                     } else {
                         tvRobotLoc?.text = "X: -, Y: - (Facing: -)"
                     }
+
+                    val label = when (s.executionMode) {
+                        ExecutionMode.EXPLORATION -> "Exploration"
+                        ExecutionMode.FASTEST -> "Fastest"
+                        else -> "Run"
+                    }
+                    val mins = s.runSeconds / 60
+                    val secs = s.runSeconds % 60
+                    tvRunTimer.text = "$label Time: %02d:%02d".format(mins, secs)
                 }
             }
         }
@@ -150,7 +165,6 @@ class ControllerFragment : Fragment(R.layout.fragment_controller) {
         view.findViewById<Button>(R.id.btnBack)?.setOnClickListener { viewModel.sendMoveBackward() }
         view.findViewById<Button>(R.id.btnLeft)?.setOnClickListener { viewModel.sendTurnLeft() }
         view.findViewById<Button>(R.id.btnRight)?.setOnClickListener { viewModel.sendTurnRight() }
-        view.findViewById<Button>(R.id.btnStop)?.setOnClickListener { viewModel.sendStop() }
         view.findViewById<Button>(R.id.btnExplore)?.setOnClickListener { viewModel.sendStartExploration() }
         view.findViewById<Button>(R.id.btnFastest)?.setOnClickListener { viewModel.sendStartFastestPath() }
         view.findViewById<Button>(R.id.btnReset)?.setOnClickListener { viewModel.resetAll() }
@@ -165,11 +179,25 @@ class ControllerFragment : Fragment(R.layout.fragment_controller) {
         val panelConfig = dialogView.findViewById<View>(R.id.panelConfig)
         val panelImage = dialogView.findViewById<View>(R.id.panelImage)
 
+        val obstacle = viewModel.state.value.placedObstacles.find { it.protocolId == protocolId }
+        val etObsX = dialogView.findViewById<EditText>(R.id.etObsX)
+        val etObsY = dialogView.findViewById<EditText>(R.id.etObsY)
+        etObsX.setText((obstacle?.bottomLeftX ?: 0).toString())
+        etObsY.setText((obstacle?.bottomLeftY ?: 0).toString())
+
         val spFacing = dialogView.findViewById<Spinner>(R.id.spFacing)
         spFacing.adapter = ArrayAdapter(requireContext(), android.R.layout.simple_spinner_dropdown_item, DirectionUtil.faces)
 
         val iv = dialogView.findViewById<android.widget.ImageView>(R.id.ivObstacleImage)
         val tvEmpty = dialogView.findViewById<TextView>(R.id.tvNoImage)
+
+        val btnResetImage = dialogView.findViewById<Button>(R.id.btnResetImage)
+        btnResetImage.setOnClickListener {
+            viewModel.resetObstacleImage(protocolId)
+            iv.setImageDrawable(null)
+            iv.visibility = View.GONE
+            tvEmpty.visibility = View.VISIBLE
+        }
 
         fun switchToConfig() {
             panelConfig.visibility = View.VISIBLE
@@ -189,16 +217,19 @@ class ControllerFragment : Fragment(R.layout.fragment_controller) {
                 iv.setImageDrawable(null)
                 iv.visibility = View.GONE
                 tvEmpty.visibility = View.VISIBLE
+                btnResetImage.visibility = View.GONE
             } else {
                 val bmp = decodeScaled(bytes, 900, 900)
                 if (bmp != null) {
                     iv.setImageBitmap(bmp)
                     iv.visibility = View.VISIBLE
                     tvEmpty.visibility = View.GONE
+                    btnResetImage.visibility = View.VISIBLE
                 } else {
                     iv.setImageDrawable(null)
                     iv.visibility = View.GONE
                     tvEmpty.visibility = View.VISIBLE
+                    btnResetImage.visibility = View.GONE
                     tvEmpty.text = "Unable to decode image"
                 }
             }
@@ -213,8 +244,14 @@ class ControllerFragment : Fragment(R.layout.fragment_controller) {
             .setTitle("Obstacle $protocolId")
             .setView(dialogView)
             .setPositiveButton("Save") { _, _ ->
+                val obstacle = viewModel.state.value.placedObstacles.find { it.protocolId == protocolId }
+                val x = etObsX.text.toString().toIntOrNull()
+                val y = etObsY.text.toString().toIntOrNull()
                 val facing = DirectionUtil.fromProtocolToken(spFacing.selectedItem.toString())
-                viewModel.setPlacedFacing(protocolId, facing)
+
+                if (obstacle != null && x != null && y != null && facing != null) {
+                    viewModel.updatePlacedObstacleDirect(protocolId, x, y, facing)
+                }
             }
             .setNegativeButton("Close", null)
             .show()

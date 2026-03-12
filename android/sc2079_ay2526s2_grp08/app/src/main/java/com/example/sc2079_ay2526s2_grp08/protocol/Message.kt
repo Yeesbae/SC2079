@@ -4,17 +4,9 @@ import com.example.sc2079_ay2526s2_grp08.domain.RobotDirection
 
 sealed interface Incoming {
 
-    data class RobotPosition(
-        val x: Int,
-        val y: Int,
-        val direction: RobotDirection
-    ) : Incoming
+    data class RobotPosition(val x: Int, val y: Int, val direction: RobotDirection) : Incoming
 
-    data class TargetDetected(
-        val obstacleId: String,
-        val targetId: String,
-        val face: RobotDirection?
-    ) : Incoming
+    data class TargetDetected(val obstacleId: String, val targetId: String, val face: RobotDirection?) : Incoming
 
     data class StatusUpdate(val message: String) : Incoming
 
@@ -22,21 +14,10 @@ sealed interface Incoming {
     data class GridBinary(val width: Int, val height: Int, val cells: BooleanArray) : Incoming
     data class ArenaResize(val width: Int, val height: Int) : Incoming
 
-    data class ObstacleUpdate(
-        val obstacleId: String,
-        val x: Int,
-        val y: Int,
-        val targetFace: RobotDirection? = null
-    ) : Incoming
-
+    data class ObstacleUpdate(val obstacleId: String, val x: Int, val y: Int, val targetFace: RobotDirection? = null) : Incoming
     data class ObstacleRemoved(val obstacleId: String) : Incoming
 
-    data class PathBegin(val count: Int? = null) : Incoming
-    data class PathSequence(val poses: List<RobotPosition>) : Incoming
-    data class PathStep(val pose: RobotPosition) : Incoming
-    object PathComplete : Incoming
-    object PathAbort : Incoming
-    object PathEnd : Incoming
+    data class CommandBatch(val commands: List<String>) : Incoming
 
     data class Raw(val line: String) : Incoming
 }

@@ -14,6 +14,4 @@ object LogReducer {
         val capped = if (next.size > MAX_LOG) next.takeLast(MAX_LOG) else next
         return state.copy(log = capped)
     }
-
-    fun clear(state: AppState): AppState = state.copy(log = emptyList())
 }

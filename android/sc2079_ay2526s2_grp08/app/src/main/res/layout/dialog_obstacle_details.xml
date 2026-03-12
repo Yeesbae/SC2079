@@ -38,6 +38,20 @@
         android:orientation="vertical"
         android:layout_marginTop="12dp">
 
+        <EditText
+            android:id="@+id/etObsX"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="X"
+            android:inputType="number" />
+
+        <EditText
+            android:id="@+id/etObsY"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="Y"
+            android:inputType="number" />
+
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
@@ -63,6 +77,13 @@
             android:layout_height="match_parent"
             android:adjustViewBounds="true"
             android:scaleType="fitCenter" />
+
+        <Button
+            android:id="@+id/btnResetImage"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Reset Image"
+            android:layout_marginTop="12dp"/>
 
         <TextView
             android:id="@+id/tvNoImage"

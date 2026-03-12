@@ -18,25 +18,34 @@ import org.json.JSONObject
  */
 object ProtocolParser {
 
-    fun parse(line: String): Incoming {
-        val raw = line.trim()
-        if (raw.isEmpty()) return Incoming.Raw(line)
+    fun parse(raw: String): Incoming {
+        val line = raw.trim()
+        if (line.isEmpty()) return Incoming.Raw(raw)
 
-        // Try JSON first
-        if (raw.startsWith("{") && raw.endsWith("}")) {
-            parseJson(raw)?.let { return it }
+        if (line.startsWith("COMMANDS:")) {
+
+            val json = line.removePrefix("COMMANDS:")
+            val arr = JSONArray(json)
+
+            val cmds = mutableListOf<String>()
+
+            for (i in 0 until arr.length()) {
+                cmds.add(arr.getString(i))
+            }
+
+            return Incoming.CommandBatch(cmds)
         }
 
-        // Try JSON array (for path sequences)
-        if (raw.startsWith("[") && raw.endsWith("]")) {
-            parseJsonArray(raw)?.let { return it }
+        // Try JSON first
+        if (line.startsWith("{") && line.endsWith("}")) {
+            parseJson(line)?.let { return it }
         }
 
         // Try MDP protocol formats
-        parseMdpProtocol(raw)?.let { return it }
+        parseMdpProtocol(line)?.let { return it }
 
         // Try legacy grid format
-        parseGrid(raw)?.let { return it }
+        parseGrid(line)?.let { return it }
 
         return Incoming.Raw(line)
     }
@@ -59,13 +68,6 @@ object ProtocolParser {
             "MSG" -> parseStatusMessage(raw)
             "STATUS" -> if (parts.size >= 2) Incoming.StatusUpdate(parts.drop(1).joinToString(",")) else null
             "M" -> Incoming.StatusUpdate(parts.drop(1).joinToString(","))
-
-            // ---- Path control ----
-            "PATH_BEGIN" -> Incoming.PathBegin(parts.getOrNull(1)?.toIntOrNull())
-            "PATH_COMPLETE", "PATHCOMPLETE" -> Incoming.PathComplete
-            "PATH_END" -> Incoming.PathEnd
-            "PATH_ABORT", "PATHABORT" -> Incoming.PathAbort
-            "P" -> parseRobotPosition(parts)
 
             // Compact Explore start echo
             "E" -> Incoming.StatusUpdate("Exploration started")
@@ -96,7 +98,7 @@ object ProtocolParser {
      */
     private fun parseTargetDetected(parts: List<String>): Incoming? {
         if (parts.size < 3) return null
-        val obstacleId = parts[1]
+        val obstacleId = if (parts[1].startsWith("B")) parts[1] else "B${parts[1]}"
         val targetId = parts[2]
         val face = if (parts.size >= 4) parseDirection(parts[3]) else null
         return Incoming.TargetDetected(obstacleId, targetId, face)
@@ -136,10 +138,6 @@ object ProtocolParser {
                 "RESIZE", "ARENA_RESIZE" -> parseJsonArenaResize(obj)
                 "OBSTACLE", "ADD_OBSTACLE" -> parseJsonObstacle(obj)
                 "REMOVE_OBSTACLE" -> Incoming.ObstacleRemoved(obj.optString("id", obj.optString("obstacleId", "")))
-                "PATH", "PATH_SEQUENCE" -> parseJsonPathSequence(obj)
-                "PATH_STEP" -> parseJsonPathStep(obj)
-                "PATH_COMPLETE" -> Incoming.PathComplete
-                "PATH_ABORT" -> Incoming.PathAbort
                 else -> parseJsonByContent(obj)
             }
         } catch (_: Exception) {
@@ -252,97 +250,6 @@ object ProtocolParser {
             val y = obj.getInt("y")
             val face = parseDirection(obj.optString("face", obj.optString("direction", "")))
             Incoming.ObstacleUpdate(id, x, y, face)
-        } catch (_: Exception) {
-            null
-        }
-    }
-
-    private fun parseJsonPathSequence(obj: JSONObject): Incoming? {
-        return try {
-            val arr = obj.optJSONArray("path") ?: obj.optJSONArray("poses") ?: return null
-            val poses = mutableListOf<Incoming.RobotPosition>()
-            for (i in 0 until arr.length()) {
-                val pose = arr.getJSONObject(i)
-                val x = pose.getInt("x")
-                val y = pose.getInt("y")
-                val dir = when {
-                    pose.has("d") -> {
-                        val dv = pose.optInt("d", 0)
-                        when (dv) {
-                            0 -> RobotDirection.NORTH
-                            2 -> RobotDirection.EAST
-                            4 -> RobotDirection.SOUTH
-                            6 -> RobotDirection.WEST
-                            else -> RobotDirection.NORTH
-                        }
-                    }
-                    else -> {
-                        val dStr = pose.optString("direction", pose.optString("dir", "N"))
-                        DirectionUtil.fromProtocolToken(dStr)
-                    }
-                }
-                poses.add(Incoming.RobotPosition(x,y,dir))
-            }
-            if (poses.isNotEmpty()) Incoming.PathSequence(poses) else null
-        } catch (_: Exception) {
-            null
-        }
-    }
-
-    private fun parseJsonPathStep(obj: JSONObject): Incoming? {
-        return try {
-            val x = obj.getInt("x")
-            val y = obj.getInt("y")
-            val d = obj.optString("direction", obj.optString("dir", obj.optString("d", "")))
-            val dir = when {
-                obj.has("d") -> {
-                    val dv = obj.optInt("d", 0)
-                    when (dv) {
-                        0 -> RobotDirection.NORTH
-                        2 -> RobotDirection.EAST
-                        4 -> RobotDirection.SOUTH
-                        6 -> RobotDirection.WEST
-                        else -> RobotDirection.NORTH
-                    }
-                }
-                else -> {
-                    val dStr = obj.optString("direction", obj.optString("dir", "N"))
-                    DirectionUtil.fromProtocolToken(dStr)
-                }
-            }
-            Incoming.PathStep(Incoming.RobotPosition(x, y, dir))
-        } catch (_: Exception) {
-            null
-        }
-    }
-
-    private fun parseJsonArray(raw: String): Incoming? {
-        return try {
-            val arr = JSONArray(raw)
-            val poses = mutableListOf<Incoming.RobotPosition>()
-            for (i in 0 until arr.length()) {
-                val pose = arr.getJSONObject(i)
-                val x = pose.getInt("x")
-                val y = pose.getInt("y")
-                val dir = when {
-                    pose.has("d") -> {
-                        val dv = pose.optInt("d", 0)
-                        when (dv) {
-                            0 -> RobotDirection.NORTH
-                            2 -> RobotDirection.EAST
-                            4 -> RobotDirection.SOUTH
-                            6 -> RobotDirection.WEST
-                            else -> RobotDirection.NORTH
-                        }
-                    }
-                    else -> {
-                        val dStr = pose.optString("direction", pose.optString("dir", "N"))
-                        DirectionUtil.fromProtocolToken(dStr)
-                    }
-                }
-                poses.add(Incoming.RobotPosition(x, y, dir))
-            }
-            if (poses.isNotEmpty()) Incoming.PathSequence(poses) else null
         } catch (_: Exception) {
             null
         }

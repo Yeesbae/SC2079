@@ -52,4 +52,19 @@ object PlacementReducer {
         }
         return state.copy(placedObstacles = nextPlaced).withArenaDerivedFromPlacedObstacles()
     }
+
+    fun resetObstacleImage(state: AppState, protocolId: String): AppState {
+        val nextPlaced = state.placedObstacles.map {
+            if (it.protocolId == protocolId) {
+                it.copy(targetId = null)
+            } else it
+        }
+
+        val nextImages = state.obstacleImages - protocolId
+
+        return state.copy(
+            placedObstacles = nextPlaced,
+            obstacleImages = nextImages
+        ).withArenaDerivedFromPlacedObstacles()
+    }
 }

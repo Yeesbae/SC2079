@@ -129,8 +129,8 @@ data class ImageDetection(
  */
 enum class ExecutionMode {
     NONE,
-    PLANNED,
-    LIVE_TELEMETRY,
+    EXPLORATION,
+    FASTEST,
 }
 
 data class PathExecutionState(
@@ -227,8 +227,8 @@ data class AppState(
     val lastImageBytes: ByteArray? = null,
 
     // Path execution
-    val pathExecution: PathExecutionState = PathExecutionState(),
     val executionMode: ExecutionMode = ExecutionMode.NONE,
+    val runSeconds: Long = 0,
 
     // Message log
     val log: List<LogEntry> = emptyList()

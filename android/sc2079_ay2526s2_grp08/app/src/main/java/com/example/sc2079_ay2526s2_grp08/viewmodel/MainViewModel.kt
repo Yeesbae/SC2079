@@ -15,7 +15,9 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlin.collections.ArrayDeque
 
 /**
  * Main ViewModel - the single point of interaction between UI and backend.
@@ -42,9 +44,10 @@ class MainViewModel(
     private var playbackJob: Job? = null
     private val _state = MutableStateFlow(AppState())
     private var autoListenOnDisconnect: Boolean = true
-    private var collectingPath = false
-    private val collectedPoses = mutableListOf<Incoming.RobotPosition>()
-    private var expectedPathCount: Int? = null
+    private val playbackQueue = ArrayDeque<PlaybackCommand>()
+    private var waitingForSnap = false
+    private var currentSnapObstacleId: String? = null
+    private var runTimerJob: Job? = null
     private var awaitingAck = false
     private val pendingMoves = ArrayDeque<Outgoing>()
     val state: StateFlow<AppState> = _state
@@ -144,25 +147,6 @@ class MainViewModel(
         send(Outgoing.TurnRight)
     }
 
-    fun sendMoveForward(steps: Int) {
-        repeat(steps.coerceAtLeast(0)){
-            _state.update { s -> RobotReducer.applyLocalMove(s, forward = true) }
-        }
-        send(Outgoing.MoveForwardSteps(steps))
-    }
-
-    fun sendMoveBackward(steps: Int) {
-        repeat(steps.coerceAtLeast(0)){
-            _state.update { s -> RobotReducer.applyLocalMove(s, forward = false) }
-        }
-        send(Outgoing.MoveBackwardSteps(steps))
-    }
-
-    fun sendTurnDegrees(degrees: Int) {
-        _state.update { s -> RobotReducer.applyLocalTurnDegrees(s, degrees) }
-        send(Outgoing.TurnDegrees(degrees))
-    }
-
     fun placeObstacleDirect(obstacleId: Int, bottomLeftX: Int, bottomLeftY: Int, width: Int, height: Int, facing: RobotDirection) {
         val arena = _state.value.arena
         val maxW = arena?.width ?: ArenaConfig.GRID_SIZE
@@ -176,6 +160,31 @@ class MainViewModel(
         _state.update { s ->
             val updated = s.placedObstacles.filterNot { it.obstacleId == obstacleId } + newObstacle
             s.copy(placedObstacles = updated, pendingObstacle = null, pendingPreview = null, dragPreview = null).withArenaDerivedFromPlacedObstacles()
+        }
+    }
+
+    fun updatePlacedObstacleDirect(protocolId: String, bottomLeftX: Int, bottomLeftY: Int, facing: RobotDirection) {
+        val arena = _state.value.arena
+        val maxW = arena?.width ?: ArenaConfig.GRID_SIZE
+        val maxH = arena?.height ?: ArenaConfig.GRID_SIZE
+
+        val current = _state.value.placedObstacles.find { it.protocolId == protocolId } ?: return
+
+        if (bottomLeftX < 0 || bottomLeftY < 0 ||
+            bottomLeftX + current.width > maxW || bottomLeftY + current.height > maxH
+        ) return
+
+        val updatedObstacle = current.copy(
+            bottomLeftX = bottomLeftX,
+            bottomLeftY = bottomLeftY,
+            facing = facing
+        )
+
+        _state.update { s ->
+            val updated = s.placedObstacles.map {
+                if (it.protocolId == protocolId) updatedObstacle else it
+            }
+            s.copy(placedObstacles = updated).withArenaDerivedFromPlacedObstacles()
         }
     }
 
@@ -264,10 +273,42 @@ class MainViewModel(
         }
     }
 
+    private fun startRunTimer() {
+        runTimerJob?.cancel()
+        _state.update {
+            it.copy(runSeconds = 0)
+        }
+        runTimerJob = viewModelScope.launch {
+            while (isActive) {
+                delay(1000)
+                _state.update { state ->
+                    state.copy(
+                        runSeconds = state.runSeconds + 1
+                    )
+                }
+            }
+        }
+    }
+
+    private fun stopRunTimer(){
+        runTimerJob?.cancel()
+        runTimerJob = null
+    }
+
     fun sendStartExploration() {
         val s = _state.value
         val arena = s.arena ?: return
         val robot = s.robot ?: return
+
+        playbackJob?.cancel()
+        playbackJob = null
+        playbackQueue.clear()
+        waitingForSnap = false
+        currentSnapObstacleId = null
+
+        // reset obstacle images / detected IDs
+        resetObstacleImages()
+        startRunTimer()
 
         val json = JsonProtocol.encodeStartExplore(
             arena = arena,
@@ -277,39 +318,16 @@ class MainViewModel(
 
         bt.sendLine(json)
         log(LogEntry.Kind.OUT, json)
-        _state.update { it.copy(executionMode = ExecutionMode.PLANNED) }
+        _state.update { it.copy(executionMode = ExecutionMode.EXPLORATION) }
     }
 
     fun sendStartFastestPath() {
+        startRunTimer()
         bt.sendLine("""{"cmd":"START_FAST"}""")
         log(LogEntry.Kind.OUT, """{"cmd":"START_FAST"}""")
-        _state.update { it.copy(executionMode = ExecutionMode.LIVE_TELEMETRY) }
+        _state.update { it.copy(executionMode = ExecutionMode.FASTEST) }
     }
     fun sendStop() = send(Outgoing.StopRobot)
-
-    /** Stored configurable button commands */
-    private val configButtonCommands = mutableMapOf(
-        1 to "F1_DEFAULT",
-        2 to "F2_DEFAULT"
-    )
-
-    /** Configure a button command (persisted locally) */
-    fun setConfigButtonCommand(buttonId: Int, command: String) {
-        configButtonCommands[buttonId] = command
-    }
-
-    /** Get configured command for a button */
-    fun getConfigButtonCommand(buttonId: Int): String {
-        return configButtonCommands[buttonId] ?: ""
-    }
-
-    /** Send the configured command for a button */
-    fun sendConfigButton(buttonId: Int) {
-        val command = configButtonCommands[buttonId] ?: return
-        send(Outgoing.ConfigButton(buttonId, command))
-    }
-
-    fun sendStatus(status: String) = send(Outgoing.SendStatus(status))
 
     /** Send a raw string (for debugging or unsupported commands) */
     fun sendRaw(line: String) = send(Outgoing.Raw(line))
@@ -327,9 +345,34 @@ class MainViewModel(
         }
     }
 
+    fun resetObstacleImage(protocolId: String) {
+        _state.update { s -> PlacementReducer.resetObstacleImage(s, protocolId) }
+    }
+
+    private fun resetObstacleImages() {
+        _state.update { state ->
+            val updated = state.placedObstacles.map {
+                it.copy(targetId = null)
+            }
+
+            state.copy(
+                placedObstacles = updated,
+                obstacleImages = emptyMap(),
+                lastImageBytes = null,
+                selectedObstacleId = null
+            ).withArenaDerivedFromPlacedObstacles()
+        }
+    }
+
     fun resetAll() {
         pendingMoves.clear()
         awaitingAck = false
+        playbackJob?.cancel()
+        playbackJob = null
+        playbackQueue.clear()
+        waitingForSnap = false
+        currentSnapObstacleId = null
+        stopRunTimer()
 
         _state.update {
             it.copy(
@@ -337,80 +380,109 @@ class MainViewModel(
                 statusText = null,
                 detections = emptyList(),
                 lastDetection = null,
-                pathExecution = PathExecutionState(),
                 placedObstacles = emptyList(),
                 pendingObstacle = null,
                 pendingPreview = null,
                 dragPreview = null,
                 usedTargetObstacleIds = emptySet(),
+                obstacleImages = emptyMap(),
+                selectedObstacleId = null,
+                lastImageBytes = null
             ).withArenaDerivedFromPlacedObstacles()
         }
     }
 
-    private fun startPlannedPlayback(poses: List<Incoming.RobotPosition>) {
-        playbackJob?.cancel()
+    private fun parsePlaybackCommand(cmd: String): PlaybackCommand? {
 
-        _state.update {
-            it.copy(
-                executionMode = ExecutionMode.PLANNED,
-                pathExecution = PathExecutionState(
-                    poses = poses,
-                    currentIndex = -1,
-                    isPlaying = true
-                )
-            )
+        if (cmd.startsWith("SF")) {
+            val cm = cmd.substring(2).toInt()
+            return PlaybackCommand.MoveForward(cm / 5)
         }
 
-        playbackJob = viewModelScope.launch {
-            poses.forEachIndexed { index, pose ->
-                delay(300)
+        if (cmd.startsWith("SB")) {
+            val cm = cmd.substring(2).toInt()
+            return PlaybackCommand.MoveBackward(cm / 5)
+        }
 
-                handleRobotPosition(pose)
-                _state.update { s ->
-                    s.copy(
-                        pathExecution = s.pathExecution.copy(currentIndex = index)
-                    )
+        if (cmd.matches(Regex("[LR][FB]\\d{3}"))) {
+
+            val left = cmd[0] == 'L'
+            val front = cmd[1] == 'F'
+
+            return PlaybackCommand.ArcTurn(left, front)
+        }
+
+        if (cmd.startsWith("SNAP")) {
+
+            val parts = cmd.split("_")
+            val obstacle = parts[0].removePrefix("SNAP")
+            val face = parts[1]
+
+            return PlaybackCommand.Snap("B$obstacle", face)
+        }
+
+        return null
+    }
+
+    private fun runPlaybackQueueIfIdle() {
+        if (waitingForSnap) return
+        if (playbackJob?.isActive == true) return
+        if (playbackQueue.isEmpty()) return
+
+        val next = playbackQueue.removeFirst()
+        playbackJob = viewModelScope.launch {
+            executePlaybackCommand(next)
+            playbackJob = null
+            runPlaybackQueueIfIdle()
+        }
+    }
+
+    private suspend fun executePlaybackCommand(cmd: PlaybackCommand) {
+        when (cmd) {
+            is PlaybackCommand.MoveForward -> {
+                repeat(cmd.grids.coerceAtLeast(0)) {
+                    _state.update { s -> RobotReducer.applyLocalMove(s, forward = true) }
+                    delay(120)
+                }
+            }
+            is PlaybackCommand.MoveBackward -> {
+                repeat(cmd.grids.coerceAtLeast(0)) {
+                    _state.update { s -> RobotReducer.applyLocalMove(s, forward = false) }
+                    delay(120)
                 }
             }
 
-            _state.update {
-                it.copy(
-                    executionMode = ExecutionMode.NONE,
-                    pathExecution = it.pathExecution.copy(isPlaying = false)
-                )
+            is PlaybackCommand.ArcTurn -> {
+                executeArcTurn(cmd.left, cmd.front)
+            }
+
+            is PlaybackCommand.Snap -> {
+                waitingForSnap = true
+                currentSnapObstacleId = cmd.obstacleId
+                log(LogEntry.Kind.INFO, "SNAP waiting: ${cmd.obstacleId}_${cmd.face}")
+            }
+
+            PlaybackCommand.Finish -> {
+                handlePlaybackFinished()
             }
         }
     }
 
+    private suspend fun executeArcTurn(left: Boolean, front: Boolean) {
+        val sideSteps = 25 / 5
+        val longitudinalSteps = 40 / 5
 
-    /** Clear all detections */
-    fun clearDetections() {
-        _state.update { it.copy(detections = emptyList(), lastDetection = null) }
-    }
+        repeat(sideSteps) {
+            _state.update { s -> RobotReducer.applySideShift(s, left = left) }
+            delay(120)
+        }
 
-    /** Clear path execution state */
-    fun clearPath() {
-        _state.update { s -> PathReducer.clearPath(s) }
-    }
+        repeat(longitudinalSteps) {
+            _state.update { s -> RobotReducer.applyLocalMove(s, forward = front) }
+            delay(120)
+        }
 
-    /** Toggle path playback */
-    fun togglePathPlayback() {
-        _state.update { s -> PathReducer.togglePlayback(s) }
-    }
-
-    /** Step to next pose in path */
-    fun stepPathForward() {
-        _state.update { s -> PathReducer.stepForward(s) }
-    }
-
-    /** Step to previous pose in path */
-    fun stepPathBackward() {
-        _state.update { s -> PathReducer.stepBackward(s) }
-    }
-
-    /** Clear message log */
-    fun clearLog() {
-        _state.update { s -> LogReducer.clear(s) }
+        _state.update { s -> RobotReducer.applyLocalTurn(s, left = left) }
     }
 
     private fun send(msg: Outgoing) {
@@ -426,6 +498,16 @@ class MainViewModel(
         val line = ProtocolEncoder.encode(msg)
         bt.sendLine(line)
         log(LogEntry.Kind.OUT, line)
+    }
+
+    private fun handlePlaybackFinished() {
+        playbackJob?.cancel()
+        playbackJob = null
+        playbackQueue.clear()
+        waitingForSnap = false
+        currentSnapObstacleId = null
+        stopRunTimer()
+        log(LogEntry.Kind.INFO, "PLAYBACK FINISHED")
     }
 
     private fun handleBluetoothEvent(ev: BluetoothManager.Event) {
@@ -534,20 +616,12 @@ class MainViewModel(
             is Incoming.GridBinary -> handleGridBinary(msg)
             is Incoming.ArenaResize -> handleArenaResize(msg)
 
-            // Path execution
-            is Incoming.PathBegin -> {
-                collectingPath = true
-                collectedPoses.clear()
-                expectedPathCount = msg.count
+            is Incoming.CommandBatch -> {
+                msg.commands
+                    .mapNotNull { parsePlaybackCommand(it) }
+                    .forEach { playbackQueue.add(it) }
+                runPlaybackQueueIfIdle()
             }
-            is Incoming.PathSequence -> handlePathSequence(msg)
-            is Incoming.PathStep -> handlePathStep(msg)
-            is Incoming.PathComplete -> handlePathComplete()
-            is Incoming.PathEnd -> {
-                collectingPath = false
-                startPlannedPlayback(collectedPoses.toList())
-            }
-            is Incoming.PathAbort -> handlePathAbort()
 
             // Raw/unrecognized
             is Incoming.Raw -> { /* Already logged */ }
@@ -570,9 +644,19 @@ class MainViewModel(
      * Updates the obstacle block to display the target ID.
      */
     private fun handleTargetDetected(msg: Incoming.TargetDetected) {
-        val protocolId = msg.obstacleId
+        val protocolId = if (msg.obstacleId.startsWith("B")) msg.obstacleId else "B${msg.obstacleId}"
         _state.update { s -> PlacementReducer.onTargetDetected(s, protocolId, msg.targetId, msg.face) }
         log(LogEntry.Kind.INFO, "TARGET: ${msg.obstacleId} -> ${msg.targetId}")
+
+        if (waitingForSnap) {
+            if (msg.targetId.equals("TIMEOUT", ignoreCase = true) ||
+                currentSnapObstacleId == null ||
+                protocolId == currentSnapObstacleId) {
+                waitingForSnap = false
+                currentSnapObstacleId = null
+                runPlaybackQueueIfIdle()
+            }
+        }
     }
 
     /**
@@ -601,25 +685,6 @@ class MainViewModel(
 
     private fun handleArenaResize(msg: Incoming.ArenaResize) {
         _state.update { s -> ArenaReducer.onArenaResize(s, msg) }
-    }
-
-    private fun handlePathSequence(msg: Incoming.PathSequence) {
-        log(LogEntry.Kind.INFO, "PATH RECEIVED: ${msg.poses.size} poses")
-        startPlannedPlayback(msg.poses)
-    }
-
-    private fun handlePathStep(msg: Incoming.PathStep) {
-        _state.update { s -> PathReducer.onPathStep(s, msg) }
-    }
-
-    private fun handlePathComplete() {
-        _state.update { s -> PathReducer.onPathComplete(s) }
-        log(LogEntry.Kind.INFO, "PATH COMPLETE")
-    }
-
-    private fun handlePathAbort() {
-        _state.update { s -> PathReducer.onPathAbort(s) }
-        log(LogEntry.Kind.INFO, "PATH ABORTED")
     }
 
     private fun buildProtocolIdForPending(state: AppState, pending: PendingObstacle): String {

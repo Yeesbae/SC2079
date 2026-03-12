@@ -63,6 +63,28 @@ object RobotReducer {
         return s
     }
 
+    fun applySideShift(state: AppState, left: Boolean): AppState {
+        val s = ensureRobot(state)
+        val robot = s.robot ?: return s
+
+        val dir = ((robot.directionDeg % 360) + 360) % 360
+        val step = if (left) -1 else 1
+
+        val (dx, dy) = when (dir) {
+            0 -> step to 0
+            90 -> 0 to -step
+            180 -> -step to 0
+            270 -> 0 to step
+            else -> step to 0
+        }
+
+        val gridSize = s.arena?.width ?: ArenaConfig.GRID_SIZE
+        val nx = (robot.x + dx).coerceIn(0, gridSize - 2)
+        val ny = (robot.y + dy).coerceIn(0, gridSize - 2)
+
+        return s.copy(robot = robot.copy(x = nx, y = ny))
+    }
+
     fun onIncomingRobotPosition(state: AppState, x: Int, y: Int, directionDeg: Int): AppState {
         return setRobotPosition(state, x, y, directionDeg)
     }

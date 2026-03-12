@@ -115,6 +115,14 @@ class ArenaFragment : Fragment() {
         val iv = dialogView.findViewById<android.widget.ImageView>(R.id.ivObstacleImage)
         val tvEmpty = dialogView.findViewById<TextView>(R.id.tvNoImage)
 
+        val btnResetImage = dialogView.findViewById<Button>(R.id.btnResetImage)
+        btnResetImage.setOnClickListener {
+            viewModel.resetObstacleImage(protocolId)
+            iv.setImageDrawable(null)
+            iv.visibility = View.GONE
+            tvEmpty.visibility = View.VISIBLE
+        }
+
         fun switchToConfig() {
             panelConfig.visibility = View.VISIBLE
             panelImage.visibility = View.GONE
@@ -133,16 +141,19 @@ class ArenaFragment : Fragment() {
                 iv.setImageDrawable(null)
                 iv.visibility = View.GONE
                 tvEmpty.visibility = View.VISIBLE
+                btnResetImage.visibility = View.GONE
             } else {
                 val bmp = decodeScaled(bytes, 900, 900)
                 if (bmp != null) {
                     iv.setImageBitmap(bmp)
                     iv.visibility = View.VISIBLE
                     tvEmpty.visibility = View.GONE
+                    btnResetImage.visibility = View.VISIBLE
                 } else {
                     iv.setImageDrawable(null)
                     iv.visibility = View.GONE
                     tvEmpty.visibility = View.VISIBLE
+                    btnResetImage.visibility = View.GONE
                     tvEmpty.text = "Unable to decode image"
                 }
             }
