@@ -1,11 +1,12 @@
 """
-Test dim images from dataset against the trained model.
-Simulates poor lighting conditions to evaluate model robustness.
+Test images at varying brightness levels against the trained model.
+Simulates poor/bright lighting conditions to evaluate model robustness.
 
 Usage:
     python test_dim_dataset.py                          # Default: 50% brightness, 10 random images
     python test_dim_dataset.py --brightness 0.3         # 30% brightness (darker)
-    python test_dim_dataset.py --brightness 0.7 --num 50  # 70% brightness, 50 images
+    python test_dim_dataset.py --brightness 1.5         # 150% brightness (brighter)
+    python test_dim_dataset.py --sweep --num 100        # Test 20% to 200% brightness
     python test_dim_dataset.py --all                    # Test all validation images
 """
 
@@ -33,16 +34,18 @@ CLASS_NAMES = [str(i) for i in range(11, 42)]
 
 def dim_image(img, brightness=0.5):
     """
-    Reduce image brightness.
+    Adjust image brightness.
     
     Args:
         img: Input image (BGR)
-        brightness: 0.0 = black, 1.0 = original brightness
+        brightness: 0.0 = black, 1.0 = original, 2.0 = 2x brighter
     
     Returns:
-        Dimmed image
+        Adjusted image
     """
-    return (img * brightness).astype(np.uint8)
+    # Use clip to prevent overflow for brightness > 1.0
+    adjusted = np.clip(img.astype(np.float32) * brightness, 0, 255)
+    return adjusted.astype(np.uint8)
 
 
 def get_ground_truth(image_path):
@@ -145,7 +148,7 @@ def test_single_image(model, image_path, brightness=0.5, show=False, conf_thresh
 def main():
     parser = argparse.ArgumentParser(description="Test dim images against YOLO model")
     parser.add_argument("--brightness", type=float, default=0.5,
-                        help="Brightness level (0.0-1.0, default: 0.5)")
+                        help="Brightness level (0.0=black, 1.0=normal, 2.0=2x bright, default: 0.5)")
     parser.add_argument("--num", type=int, default=10,
                         help="Number of random images to test (default: 10)")
     parser.add_argument("--all", action="store_true",
@@ -157,7 +160,7 @@ def main():
     parser.add_argument("--model", type=str, default=MODEL_PATH,
                         help="Path to model (default: models/best.pt)")
     parser.add_argument("--sweep", action="store_true",
-                        help="Test multiple brightness levels (0.2, 0.3, 0.4, 0.5, 0.6, 0.7)")
+                        help="Test brightness levels from 20%% to 200%% (dim to bright)")
     args = parser.parse_args()
     
     # Check paths
@@ -193,10 +196,10 @@ def main():
     print(f"Testing {len(test_images)} images")
     
     if args.sweep:
-        # Test multiple brightness levels
-        brightness_levels = [0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 1.0]
+        # Test multiple brightness levels (dim to bright)
+        brightness_levels = [0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 1.0, 1.2, 1.5, 2.0]
         print(f"\n{'='*70}")
-        print("BRIGHTNESS SWEEP TEST")
+        print("BRIGHTNESS SWEEP TEST (Dim → Normal → Bright)")
         print(f"{'='*70}")
         
         for brightness in brightness_levels:
