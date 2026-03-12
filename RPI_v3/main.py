@@ -1773,6 +1773,904 @@ def run_stm32_movement_test():
 
 
 # =============================================================================
+# No-Bluetooth Test Mode (Mode 8)
+# =============================================================================
+def run_no_bt_test():
+    """
+    Mode 8: Algo PC + Image Rec PC test without Bluetooth
+    
+    Same as Mode 6 but:
+    - NO Bluetooth: Uses hardcoded/manual obstacle data
+    - Algo PC: Sends obstacle data, receives STM32 commands
+    - Image Rec PC: Detects images at SNAP commands
+    - STM32: DISABLED (simulation mode)
+    
+    Use this to test algorithm and image recognition without the tablet.
+    """
+    from communication.algo_pc import AlgoPC
+    from communication.pc import PC
+    from camera.stream_server import StreamServer
+    from config.config import get_config
+    from queue import Queue, Empty
+    import json
+    import socket
+
+    print("\n" + "=" * 60)
+    print("NO-BLUETOOTH TEST MODE (Algo + ImgRec, no BT/STM32)")
+    print("Uses hardcoded obstacle data - no tablet needed!")
+    print("=" * 60)
+    
+    config = get_config()
+    
+    # ========== HARDCODED OBSTACLE DATA ==========
+    # Modify this to test different obstacle configurations
+    # Format: {"obstacles": [...], "robot_x": x, "robot_y": y, "robot_dir": dir}
+    SAMPLE_OBSTACLES = {
+        "obstacles": [
+            {"id": 1, "x": 4, "y": 14, "d": 4},    # d: 0=N, 2=E, 4=S, 6=W
+            {"id": 2, "x": 14, "y": 9, "d": 6},
+            {"id": 3, "x": 17, "y": 17, "d": 4},
+        ],
+        "robot_x": 1,
+        "robot_y": 1,
+        "robot_dir": 0,  # 0=N, 2=E, 4=S, 6=W
+        "mode": "simulator",
+    }
+    # ============================================
+    
+    # Initialize communication handlers
+    algo = AlgoPC()
+    imgpc = PC()
+    
+    # Detection queue
+    detection_queue = Queue()
+    
+    # Execution state
+    executing_commands = False
+    
+    # Start Algorithm PC server
+    print("\n[1] Starting Algorithm PC server...")
+    if not algo.start_server():
+        print("[Mode 8] Failed to start Algorithm PC server.")
+        return
+    
+    # Start video stream server in background thread
+    print("[2] Starting video stream server...")
+    def run_stream():
+        try:
+            StreamServer().start(
+                framerate=15,
+                quality=45,
+                is_outdoors=config.is_outdoors
+            )
+        except Exception as e:
+            print(f"[Stream] Error: {e}")
+    
+    stream_thread = threading.Thread(target=run_stream, daemon=True)
+    stream_thread.start()
+    time.sleep(0.5)
+    
+    print("\n" + "=" * 60)
+    print("System Status:")
+    print("  - Video Stream: Running (UDP port 5005)")
+    print("  - Image Rec PC: Waiting for connection (TCP port 5000)")
+    print("  - Algo PC: Waiting for connection (TCP port 6000)")
+    print("  - Bluetooth: DISABLED (using hardcoded data)")
+    print("  - STM32: DISABLED (simulation mode)")
+    print("=" * 60)
+    print("\nKeyboard commands:")
+    print("  status        - Show all connection status")
+    print("  send          - Send hardcoded obstacles to Algo PC")
+    print("  custom        - Enter custom obstacle data (JSON)")
+    print("  algo <text>   - Send raw message to Algo PC")
+    print("  q             - Quit")
+    print("=" * 60)
+    print(f"\nHardcoded obstacles: {len(SAMPLE_OBSTACLES['obstacles'])} obstacles")
+    for obs in SAMPLE_OBSTACLES['obstacles']:
+        dirs = {0: 'N', 2: 'E', 4: 'S', 6: 'W'}
+        print(f"  - Obstacle {obs['id']}: ({obs['x']}, {obs['y']}) facing {dirs.get(obs['d'], '?')}")
+    print()
+    
+    running = True
+    msg_count = {'algo': 0, 'imgpc': 0}
+    DETECTION_TIMEOUT = 60.0
+    
+    def algo_connection_thread():
+        """Handle Algo PC connections"""
+        while running:
+            try:
+                if not algo.is_connected():
+                    print("\n[AlgoPC] Waiting for Algorithm PC to connect...")
+                    print(">> ", end='', flush=True)
+                    if algo.wait_for_connection(timeout=60.0):
+                        print("\n[AlgoPC] ✓ Algorithm PC connected!")
+                        print(">> ", end='', flush=True)
+                else:
+                    time.sleep(1)
+            except Exception as e:
+                if running:
+                    print(f"\n[AlgoPC Thread Error] {e}")
+                    print(">> ", end='', flush=True)
+                    time.sleep(1)
+                else:
+                    break
+
+    def imgpc_connection_thread():
+        """Handle Image Rec PC connection"""
+        while running:
+            try:
+                if not imgpc.connected:
+                    print("\n[ImgPC] Waiting for Image Rec PC to connect (TCP port 5000)...")
+                    print(">> ", end='', flush=True)
+                    imgpc.connect()
+                    if imgpc.connected:
+                        print("\n[ImgPC] ✓ Image Rec PC connected!")
+                        print(">> ", end='', flush=True)
+                        t = threading.Thread(target=receive_imgpc_thread, daemon=True)
+                        t.start()
+                        t.join()
+                        imgpc.connected = False
+                        print("\n[ImgPC] Disconnected, waiting for reconnect...")
+                        print(">> ", end='', flush=True)
+                else:
+                    time.sleep(1)
+            except Exception as e:
+                if running:
+                    print(f"\n[ImgPC Thread Error] {e}")
+                    print(">> ", end='', flush=True)
+                    time.sleep(2)
+                else:
+                    break
+
+    def receive_imgpc_thread():
+        """Receive detection results from Image Rec PC"""
+        recv_buf = b""
+        while running and imgpc.connected:
+            try:
+                chunk = imgpc.client_socket.recv(4096)
+                if not chunk:
+                    break
+                
+                recv_buf += chunk
+                
+                while recv_buf:
+                    if b"\n" in recv_buf:
+                        line, recv_buf = recv_buf.split(b"\n", 1)
+                        message_rcv = line.decode("utf-8", errors="ignore").strip()
+                    else:
+                        if len(recv_buf) < 100 and b"," in recv_buf:
+                            message_rcv = recv_buf.decode("utf-8", errors="ignore").strip()
+                            recv_buf = b""
+                        else:
+                            break
+                    
+                    if not message_rcv:
+                        continue
+                    
+                    msg_count['imgpc'] += 1
+                    
+                    if message_rcv.startswith("IMG_DATA:"):
+                        parts = message_rcv.split(":", 3)
+                        if len(parts) >= 3:
+                            print(f"\n[ImgPC] Received image binary for obstacle {parts[1]}, image {parts[2]}")
+                            print(">> ", end='', flush=True)
+                        continue
+                    
+                    if "," in message_rcv and not message_rcv.startswith(("SEEN", "STITCH", "PERFORM")):
+                        parts = message_rcv.split(",")
+                        if len(parts) >= 3:
+                            obstacle_id = parts[0]
+                            confidence = parts[1]
+                            image_id = parts[2]
+                            
+                            print(f"\n[ImgPC → RPi] Detection: obstacle={obstacle_id}, image={image_id}, conf={confidence}")
+                            
+                            detection_queue.put({
+                                'obstacle_id': obstacle_id,
+                                'confidence': confidence,
+                                'image_id': image_id
+                            })
+                    else:
+                        print(f"\n[ImgPC → RPi] {message_rcv}")
+                    
+                    print(">> ", end='', flush=True)
+                    
+            except socket.timeout:
+                continue
+            except Exception as e:
+                if running:
+                    print(f"\n[ImgPC Recv Error] {e}")
+                break
+
+    def execute_simulated_commands(commands):
+        """Execute commands without STM32, wait for ImgPC at SNAP"""
+        nonlocal executing_commands
+        executing_commands = True
+        total = len(commands)
+        
+        print(f"\n{'='*60}")
+        print(f"EXECUTING {total} COMMANDS (SIMULATED)")
+        print(f"{'='*60}")
+        
+        for i, cmd in enumerate(commands):
+            if not executing_commands or not running:
+                print("\n[SIM] Execution stopped")
+                break
+            
+            cmd = cmd.strip()
+            
+            if cmd == "FIN":
+                print(f"\n[SIM] [{i+1}/{total}] FIN - All obstacles visited!")
+                break
+            
+            if cmd.startswith("SNAP"):
+                snap_body = cmd[4:]
+                parts = snap_body.split("_")
+                obstacle_id = parts[0]
+                position = parts[1] if len(parts) > 1 else "C"
+                
+                print(f"\n[SIM] [{i+1}/{total}] {cmd}")
+                print(f"[SIM] ===== OBSTACLE {obstacle_id} =====")
+                print(f"[SIM] Show an image to the camera now!")
+                print(f"[SIM] Waiting for detection (timeout: {DETECTION_TIMEOUT}s)...")
+                
+                while not detection_queue.empty():
+                    try:
+                        stale = detection_queue.get_nowait()
+                        print(f"[SIM] Discarding stale detection: {stale}")
+                    except Empty:
+                        break
+                
+                # Send SNAP_CANCEL first to clear any previous unconsumed SNAP
+                if imgpc.connected:
+                    imgpc.send("SNAP_CANCEL")
+                    print(f"[RPi → ImgPC] SNAP_CANCEL (clearing previous SNAP before new one)")
+                
+                if imgpc.connected:
+                    imgpc.send(cmd)
+                    print(f"[RPi → ImgPC] {cmd}")
+                else:
+                    print("[SIM] WARNING: ImgPC not connected! Skipping detection...")
+                    continue
+                
+                try:
+                    detection = detection_queue.get(timeout=DETECTION_TIMEOUT)
+                    det_obs = detection.get('obstacle_id', '?')
+                    det_img = detection.get('image_id', '?')
+                    det_conf = detection.get('confidence', '?')
+                    
+                    print(f"[SIM] ✓ DETECTED: obstacle={det_obs}, image={det_img}, conf={det_conf}")
+                    print(f"[SIM] ===== OBSTACLE {obstacle_id} DONE =====")
+                    
+                except Empty:
+                    print(f"[SIM] ⚠ TIMEOUT waiting for detection of obstacle {obstacle_id}!")
+                
+                continue
+            
+            if cmd.startswith(("SF", "SB", "LF", "RF", "LB", "RB")):
+                cmd_type = cmd[:2]
+                cmd_val = cmd[2:]
+                
+                labels = {
+                    "SF": "FORWARD", 
+                    "SB": "BACKWARD", 
+                    "LF": "LEFT FORWARD TURN", 
+                    "RF": "RIGHT FORWARD TURN",
+                    "LB": "LEFT BACKWARD TURN",
+                    "RB": "RIGHT BACKWARD TURN"
+                }
+                label = labels.get(cmd_type, cmd_type)
+                
+                if cmd_type in ("SF", "SB"):
+                    print(f"[SIM] [{i+1}/{total}] {cmd} → {label} {cmd_val}cm")
+                else:
+                    print(f"[SIM] [{i+1}/{total}] {cmd} → {label} {cmd_val}°")
+                
+                time.sleep(0.1)
+                continue
+            
+            print(f"[SIM] [{i+1}/{total}] Unknown command: {cmd}")
+        
+        executing_commands = False
+        print(f"\n{'='*60}")
+        print("[SIM] Execution complete")
+        print(f"{'='*60}")
+        print(">> ", end='', flush=True)
+
+    def receive_algopc_thread():
+        """Receive from Algo PC, parse and execute commands"""
+        while running:
+            try:
+                if not algo.is_connected():
+                    time.sleep(0.5)
+                    continue
+                
+                msg = algo.receive(timeout=0.1)
+                if msg:
+                    msg = msg.strip()
+                    msg_count['algo'] += 1
+                    print(f"\n[AlgoPC → RPi] {msg[:200]}{'...' if len(msg) > 200 else ''}")
+                    
+                    try:
+                        data = json.loads(msg)
+                        if isinstance(data, dict) and "commands" in data:
+                            commands = data["commands"]
+                            print(f"[Mode 8] Received {len(commands)} STM32 commands from Algo PC")
+                            
+                            if executing_commands:
+                                print("[Mode 8] WARNING: Already executing commands, ignoring new path")
+                            else:
+                                exec_thread = threading.Thread(
+                                    target=execute_simulated_commands,
+                                    args=(commands,),
+                                    daemon=True
+                                )
+                                exec_thread.start()
+                        elif isinstance(data, list) and data and isinstance(data[0], str):
+                            print(f"[Mode 8] Received {len(data)} commands (list format)")
+                            if not executing_commands:
+                                exec_thread = threading.Thread(
+                                    target=execute_simulated_commands,
+                                    args=(data,),
+                                    daemon=True
+                                )
+                                exec_thread.start()
+                        else:
+                            print(f"[Mode 8] Received: {msg}")
+                    except json.JSONDecodeError:
+                        print(f"[Mode 8] Non-JSON message: {msg}")
+                    
+                    print(">> ", end='', flush=True)
+                elif not algo.is_connected():
+                    print("\n[DISCONNECTED] Algorithm PC disconnected")
+                    print(">> ", end='', flush=True)
+                    time.sleep(1)
+            except Exception as e:
+                if running and algo.is_connected():
+                    print(f"\n[AlgoPC Error] {e}")
+                    print(">> ", end='', flush=True)
+                time.sleep(0.5)
+
+    # Start background threads
+    algo_conn_thread = threading.Thread(target=algo_connection_thread, daemon=True)
+    algo_conn_thread.start()
+    
+    imgpc_conn_thread = threading.Thread(target=imgpc_connection_thread, daemon=True)
+    imgpc_conn_thread.start()
+    
+    recv_algo_thread = threading.Thread(target=receive_algopc_thread, daemon=True)
+    recv_algo_thread.start()
+    
+    # Main command loop
+    try:
+        while running:
+            cmd = input(">> ").strip()
+            
+            if cmd.lower() == 'q':
+                break
+            elif cmd.lower() == 'status':
+                print(f"\n  AlgoPC     : {'Connected' if algo.is_connected() else 'Waiting...'}")
+                print(f"  ImgPC      : {'Connected' if imgpc.connected else 'Waiting...'}")
+                print(f"  Bluetooth  : DISABLED")
+                print(f"  STM32      : DISABLED")
+                print(f"  Executing  : {'Yes' if executing_commands else 'No'}")
+                print(f"\n  Messages Received:")
+                print(f"    AlgoPC → RPi: {msg_count['algo']}")
+                print(f"    ImgPC → RPi : {msg_count['imgpc']}")
+                print()
+            elif cmd.lower() == 'send':
+                if algo.is_connected():
+                    algo.send_json(SAMPLE_OBSTACLES)
+                    print(f"[RPi → AlgoPC] Sent {len(SAMPLE_OBSTACLES['obstacles'])} obstacles")
+                else:
+                    print("[WARN] Algo PC not connected")
+            elif cmd.lower() == 'custom':
+                print("Enter obstacle data as JSON (or 'cancel'):")
+                print("Example: {\"obstacles\": [{\"id\": 1, \"x\": 5, \"y\": 10, \"d\": 0}], \"robot_x\": 1, \"robot_y\": 1, \"robot_dir\": 0}")
+                try:
+                    json_input = input("JSON: ").strip()
+                    if json_input.lower() == 'cancel':
+                        print("Cancelled")
+                    else:
+                        custom_data = json.loads(json_input)
+                        if algo.is_connected():
+                            algo.send_json(custom_data)
+                            print(f"[RPi → AlgoPC] Sent custom data")
+                        else:
+                            print("[WARN] Algo PC not connected")
+                except json.JSONDecodeError as e:
+                    print(f"Invalid JSON: {e}")
+            elif cmd.lower().startswith('algo '):
+                message = cmd[5:].strip()
+                if algo.is_connected():
+                    algo.send(message)
+                    print(f"[RPi → AlgoPC] {message}")
+                else:
+                    print("[WARN] Algo PC not connected")
+            elif cmd:
+                print("Unknown command. Use: status, send, custom, algo <text>, q")
+    
+    except KeyboardInterrupt:
+        print("\n\n[Mode 8] Interrupted by user")
+    finally:
+        running = False
+        executing_commands = False
+        algo.disconnect(keep_server=False)
+        imgpc.disconnect()
+        print("\n[Mode 8] No-Bluetooth test ended")
+        print(f"[Mode 8] Total messages: Algo={msg_count['algo']}, ImgPC={msg_count['imgpc']}")
+
+
+# =============================================================================
+# No-Bluetooth Full Mode with STM32 (Mode 9)
+# =============================================================================
+def run_no_bt_full():
+    """
+    Mode 9: Algo PC + Image Rec PC + STM32 (no Bluetooth)
+    
+    Same as Mode 8 but robot actually moves:
+    - NO Bluetooth: Uses hardcoded/manual obstacle data
+    - Algo PC: Sends obstacle data, receives STM32 commands
+    - Image Rec PC: Detects images at SNAP commands
+    - STM32: ENABLED - robot physically moves!
+    
+    Use this for full testing without the tablet.
+    """
+    from communication.algo_pc import AlgoPC
+    from communication.pc import PC
+    from communication.stm32 import STM32
+    from camera.stream_server import StreamServer
+    from config.config import get_config
+    from queue import Queue, Empty
+    import json
+    import socket
+
+    print("\n" + "=" * 60)
+    print("NO-BLUETOOTH FULL MODE (Algo + ImgRec + STM32, no BT)")
+    print("Robot WILL MOVE! Hardcoded obstacle data.")
+    print("=" * 60)
+    
+    config = get_config()
+    
+    # ========== HARDCODED OBSTACLE DATA ==========
+    SAMPLE_OBSTACLES = {
+        "obstacles": [
+            {"id": 1, "x": 4, "y": 14, "d": 4},
+            {"id": 2, "x": 14, "y": 9, "d": 6},
+            {"id": 3, "x": 17, "y": 17, "d": 4},
+        ],
+        "robot_x": 1,
+        "robot_y": 1,
+        "robot_dir": 0,
+        "mode": "simulator",
+    }
+    # ============================================
+    
+    # Initialize communication handlers
+    algo = AlgoPC()
+    imgpc = PC()
+    stm = STM32()
+    
+    # Initialize STM32
+    stm32_ok = False
+    ports_to_try = ["/dev/ttyUSB0", "/dev/ttyACM0", "/dev/ttyAMA0"]
+    for port in ports_to_try:
+        stm.port = port
+        if stm.connect():
+            stm32_ok = True
+            break
+    
+    if not stm32_ok:
+        print("[Mode 9] ⚠ STM32 not connected! Commands will be printed only.")
+        print("[Mode 9]   Check USB cable and run: ls /dev/tty*")
+    
+    # Detection queue
+    detection_queue = Queue()
+    
+    # Execution state
+    executing_commands = False
+    STM32_ACK_TIMEOUT = 10.0
+    DETECTION_TIMEOUT = 60.0
+    
+    # Start Algorithm PC server
+    print("\n[1] Starting Algorithm PC server...")
+    if not algo.start_server():
+        print("[Mode 9] Failed to start Algorithm PC server.")
+        return
+    
+    # Start video stream server
+    print("[2] Starting video stream server...")
+    def run_stream():
+        try:
+            StreamServer().start(
+                framerate=15,
+                quality=45,
+                is_outdoors=config.is_outdoors
+            )
+        except Exception as e:
+            print(f"[Stream] Error: {e}")
+    
+    stream_thread = threading.Thread(target=run_stream, daemon=True)
+    stream_thread.start()
+    time.sleep(0.5)
+    
+    print("\n" + "=" * 60)
+    print("System Status:")
+    print(f"  - STM32: {'Connected (' + stm.port + ')' if stm32_ok else 'NOT CONNECTED'}")
+    print("  - Video Stream: Running (UDP port 5005)")
+    print("  - Image Rec PC: Waiting for connection (TCP port 5000)")
+    print("  - Algo PC: Waiting for connection (TCP port 6000)")
+    print("  - Bluetooth: DISABLED (using hardcoded data)")
+    print("=" * 60)
+    print("\nKeyboard commands:")
+    print("  status        - Show all connection status")
+    print("  send          - Send hardcoded obstacles to Algo PC")
+    print("  custom        - Enter custom obstacle data (JSON)")
+    print("  stm <cmd>     - Send manual command to STM32")
+    print("  algo <text>   - Send raw message to Algo PC")
+    print("  q             - Quit")
+    print("=" * 60)
+    print(f"\nHardcoded obstacles: {len(SAMPLE_OBSTACLES['obstacles'])} obstacles")
+    for obs in SAMPLE_OBSTACLES['obstacles']:
+        dirs = {0: 'N', 2: 'E', 4: 'S', 6: 'W'}
+        print(f"  - Obstacle {obs['id']}: ({obs['x']}, {obs['y']}) facing {dirs.get(obs['d'], '?')}")
+    print()
+    
+    running = True
+    msg_count = {'algo': 0, 'imgpc': 0}
+    
+    def algo_connection_thread():
+        while running:
+            try:
+                if not algo.is_connected():
+                    print("\n[AlgoPC] Waiting for Algorithm PC to connect...")
+                    print(">> ", end='', flush=True)
+                    if algo.wait_for_connection(timeout=60.0):
+                        print("\n[AlgoPC] ✓ Algorithm PC connected!")
+                        print(">> ", end='', flush=True)
+                else:
+                    time.sleep(1)
+            except Exception as e:
+                if running:
+                    print(f"\n[AlgoPC Thread Error] {e}")
+                    print(">> ", end='', flush=True)
+                    time.sleep(1)
+                else:
+                    break
+
+    def imgpc_connection_thread():
+        while running:
+            try:
+                if not imgpc.connected:
+                    print("\n[ImgPC] Waiting for Image Rec PC to connect (TCP port 5000)...")
+                    print(">> ", end='', flush=True)
+                    imgpc.connect()
+                    if imgpc.connected:
+                        print("\n[ImgPC] ✓ Image Rec PC connected!")
+                        print(">> ", end='', flush=True)
+                        t = threading.Thread(target=receive_imgpc_thread, daemon=True)
+                        t.start()
+                        t.join()
+                        imgpc.connected = False
+                        print("\n[ImgPC] Disconnected, waiting for reconnect...")
+                        print(">> ", end='', flush=True)
+                else:
+                    time.sleep(1)
+            except Exception as e:
+                if running:
+                    print(f"\n[ImgPC Thread Error] {e}")
+                    print(">> ", end='', flush=True)
+                    time.sleep(2)
+                else:
+                    break
+
+    def receive_imgpc_thread():
+        recv_buf = b""
+        while running and imgpc.connected:
+            try:
+                chunk = imgpc.client_socket.recv(4096)
+                if not chunk:
+                    break
+                
+                recv_buf += chunk
+                
+                while recv_buf:
+                    if b"\n" in recv_buf:
+                        line, recv_buf = recv_buf.split(b"\n", 1)
+                        message_rcv = line.decode("utf-8", errors="ignore").strip()
+                    else:
+                        if len(recv_buf) < 100 and b"," in recv_buf:
+                            message_rcv = recv_buf.decode("utf-8", errors="ignore").strip()
+                            recv_buf = b""
+                        else:
+                            break
+                    
+                    if not message_rcv:
+                        continue
+                    
+                    msg_count['imgpc'] += 1
+                    
+                    if message_rcv.startswith("IMG_DATA:"):
+                        parts = message_rcv.split(":", 3)
+                        if len(parts) >= 3:
+                            print(f"\n[ImgPC] Received image binary for obstacle {parts[1]}, image {parts[2]}")
+                            print(">> ", end='', flush=True)
+                        continue
+                    
+                    if "," in message_rcv and not message_rcv.startswith(("SEEN", "STITCH", "PERFORM")):
+                        parts = message_rcv.split(",")
+                        if len(parts) >= 3:
+                            obstacle_id = parts[0]
+                            confidence = parts[1]
+                            image_id = parts[2]
+                            
+                            print(f"\n[ImgPC → RPi] Detection: obstacle={obstacle_id}, image={image_id}, conf={confidence}")
+                            
+                            detection_queue.put({
+                                'obstacle_id': obstacle_id,
+                                'confidence': confidence,
+                                'image_id': image_id
+                            })
+                    else:
+                        print(f"\n[ImgPC → RPi] {message_rcv}")
+                    
+                    print(">> ", end='', flush=True)
+                    
+            except socket.timeout:
+                continue
+            except Exception as e:
+                if running:
+                    print(f"\n[ImgPC Recv Error] {e}")
+                break
+
+    def execute_commands_with_stm32(commands):
+        """Execute commands with real STM32, wait for ImgPC at SNAP"""
+        nonlocal executing_commands
+        executing_commands = True
+        total = len(commands)
+        
+        print(f"\n{'='*60}")
+        print(f"EXECUTING {total} COMMANDS (STM32 MODE)")
+        print(f"{'='*60}")
+        
+        for i, cmd in enumerate(commands):
+            if not executing_commands or not running:
+                print("\n[STM] Execution stopped")
+                break
+            
+            cmd = cmd.strip()
+            
+            if cmd == "FIN":
+                print(f"\n[STM] [{i+1}/{total}] FIN - All obstacles visited!")
+                break
+            
+            # ---- SNAP: Image detection (blocking) ----
+            if cmd.startswith("SNAP"):
+                snap_body = cmd[4:]
+                parts = snap_body.split("_")
+                obstacle_id = parts[0]
+                position = parts[1] if len(parts) > 1 else "C"
+                
+                print(f"\n[STM] [{i+1}/{total}] {cmd}")
+                print(f"[STM] ===== OBSTACLE {obstacle_id} =====")
+                print(f"[STM] Show an image to the camera now!")
+                print(f"[STM] Waiting for detection (timeout: {DETECTION_TIMEOUT}s)...")
+                
+                while not detection_queue.empty():
+                    try:
+                        stale = detection_queue.get_nowait()
+                        print(f"[STM] Discarding stale detection: {stale}")
+                    except Empty:
+                        break
+                
+                # Send SNAP_CANCEL first
+                if imgpc.connected:
+                    imgpc.send("SNAP_CANCEL")
+                    print(f"[RPi → ImgPC] SNAP_CANCEL")
+                
+                if imgpc.connected:
+                    imgpc.send(cmd)
+                    print(f"[RPi → ImgPC] {cmd}")
+                else:
+                    print("[STM] WARNING: ImgPC not connected! Skipping detection...")
+                    continue
+                
+                try:
+                    detection = detection_queue.get(timeout=DETECTION_TIMEOUT)
+                    det_obs = detection.get('obstacle_id', '?')
+                    det_img = detection.get('image_id', '?')
+                    det_conf = detection.get('confidence', '?')
+                    
+                    print(f"[STM] ✓ DETECTED: obstacle={det_obs}, image={det_img}, conf={det_conf}")
+                    print(f"[STM] ===== OBSTACLE {obstacle_id} DONE =====")
+                    
+                except Empty:
+                    print(f"[STM] ⚠ TIMEOUT waiting for detection of obstacle {obstacle_id}!")
+                
+                continue
+            
+            # ---- Movement commands: SF, SB, LF, RF, LB, RB ----
+            if cmd.startswith(("SF", "SB", "LF", "RF", "LB", "RB")):
+                cmd_type = cmd[:2]
+                cmd_val = cmd[2:]
+                
+                labels = {
+                    "SF": "FORWARD", 
+                    "SB": "BACKWARD", 
+                    "LF": "LEFT FORWARD TURN", 
+                    "RF": "RIGHT FORWARD TURN",
+                    "LB": "LEFT BACKWARD TURN",
+                    "RB": "RIGHT BACKWARD TURN"
+                }
+                label = labels.get(cmd_type, cmd_type)
+                
+                if cmd_type in ("SF", "SB"):
+                    print(f"[STM] [{i+1}/{total}] {cmd} → {label} {cmd_val}cm")
+                else:
+                    print(f"[STM] [{i+1}/{total}] {cmd} → {label} {cmd_val}°")
+                
+                # Send to real STM32
+                if stm32_ok and stm.connected:
+                    print(f"[STM] → STM32: {cmd}")
+                    if stm.send(cmd):
+                        response = stm.receive(timeout=STM32_ACK_TIMEOUT)
+                        if response:
+                            print(f"[STM] ← STM32 ACK: {response}")
+                        else:
+                            print(f"[STM] ⚠ STM32 no ACK for {cmd} (timeout {STM32_ACK_TIMEOUT}s)")
+                    else:
+                        print(f"[STM] ✗ Failed to send {cmd} to STM32")
+                else:
+                    print(f"[STM] ⚠ STM32 not connected - command not sent")
+                continue
+            
+            print(f"[STM] [{i+1}/{total}] Unknown command: {cmd}")
+        
+        executing_commands = False
+        print(f"\n{'='*60}")
+        print("[STM] Execution complete")
+        print(f"{'='*60}")
+        print(">> ", end='', flush=True)
+
+    def receive_algopc_thread():
+        while running:
+            try:
+                if not algo.is_connected():
+                    time.sleep(0.5)
+                    continue
+                
+                msg = algo.receive(timeout=0.1)
+                if msg:
+                    msg = msg.strip()
+                    msg_count['algo'] += 1
+                    print(f"\n[AlgoPC → RPi] {msg[:200]}{'...' if len(msg) > 200 else ''}")
+                    
+                    try:
+                        data = json.loads(msg)
+                        if isinstance(data, dict) and "commands" in data:
+                            commands = data["commands"]
+                            print(f"[Mode 9] Received {len(commands)} STM32 commands from Algo PC")
+                            
+                            if executing_commands:
+                                print("[Mode 9] WARNING: Already executing commands, ignoring new path")
+                            else:
+                                exec_thread = threading.Thread(
+                                    target=execute_commands_with_stm32,
+                                    args=(commands,),
+                                    daemon=True
+                                )
+                                exec_thread.start()
+                        elif isinstance(data, list) and data and isinstance(data[0], str):
+                            print(f"[Mode 9] Received {len(data)} commands (list format)")
+                            if not executing_commands:
+                                exec_thread = threading.Thread(
+                                    target=execute_commands_with_stm32,
+                                    args=(data,),
+                                    daemon=True
+                                )
+                                exec_thread.start()
+                        else:
+                            print(f"[Mode 9] Received: {msg}")
+                    except json.JSONDecodeError:
+                        print(f"[Mode 9] Non-JSON message: {msg}")
+                    
+                    print(">> ", end='', flush=True)
+                elif not algo.is_connected():
+                    print("\n[DISCONNECTED] Algorithm PC disconnected")
+                    print(">> ", end='', flush=True)
+                    time.sleep(1)
+            except Exception as e:
+                if running and algo.is_connected():
+                    print(f"\n[AlgoPC Error] {e}")
+                    print(">> ", end='', flush=True)
+                time.sleep(0.5)
+
+    # Start background threads
+    algo_conn_thread = threading.Thread(target=algo_connection_thread, daemon=True)
+    algo_conn_thread.start()
+    
+    imgpc_conn_thread = threading.Thread(target=imgpc_connection_thread, daemon=True)
+    imgpc_conn_thread.start()
+    
+    recv_algo_thread = threading.Thread(target=receive_algopc_thread, daemon=True)
+    recv_algo_thread.start()
+    
+    # Main command loop
+    try:
+        while running:
+            cmd = input(">> ").strip()
+            
+            if cmd.lower() == 'q':
+                break
+            elif cmd.lower() == 'status':
+                print(f"\n  STM32      : {'Connected (' + stm.port + ')' if stm32_ok and stm.connected else 'NOT CONNECTED'}")
+                print(f"  AlgoPC     : {'Connected' if algo.is_connected() else 'Waiting...'}")
+                print(f"  ImgPC      : {'Connected' if imgpc.connected else 'Waiting...'}")
+                print(f"  Bluetooth  : DISABLED")
+                print(f"  Executing  : {'Yes' if executing_commands else 'No'}")
+                print(f"\n  Messages Received:")
+                print(f"    AlgoPC → RPi: {msg_count['algo']}")
+                print(f"    ImgPC → RPi : {msg_count['imgpc']}")
+                print()
+            elif cmd.lower() == 'send':
+                if algo.is_connected():
+                    algo.send_json(SAMPLE_OBSTACLES)
+                    print(f"[RPi → AlgoPC] Sent {len(SAMPLE_OBSTACLES['obstacles'])} obstacles")
+                else:
+                    print("[WARN] Algo PC not connected")
+            elif cmd.lower() == 'custom':
+                print("Enter obstacle data as JSON (or 'cancel'):")
+                print("Example: {\"obstacles\": [{\"id\": 1, \"x\": 5, \"y\": 10, \"d\": 0}], \"robot_x\": 1, \"robot_y\": 1, \"robot_dir\": 0}")
+                try:
+                    json_input = input("JSON: ").strip()
+                    if json_input.lower() == 'cancel':
+                        print("Cancelled")
+                    else:
+                        custom_data = json.loads(json_input)
+                        if algo.is_connected():
+                            algo.send_json(custom_data)
+                            print(f"[RPi → AlgoPC] Sent custom data")
+                        else:
+                            print("[WARN] Algo PC not connected")
+                except json.JSONDecodeError as e:
+                    print(f"Invalid JSON: {e}")
+            elif cmd.lower().startswith('stm '):
+                stm_cmd = cmd[4:].strip().upper()
+                if stm32_ok and stm.connected:
+                    print(f"[Manual] → STM32: {stm_cmd}")
+                    if stm.send(stm_cmd):
+                        response = stm.receive(timeout=STM32_ACK_TIMEOUT)
+                        if response:
+                            print(f"[Manual] ← STM32 ACK: {response}")
+                        else:
+                            print(f"[Manual] No ACK (timeout)")
+                    else:
+                        print("[Manual] Failed to send")
+                else:
+                    print("[WARN] STM32 not connected")
+            elif cmd.lower().startswith('algo '):
+                message = cmd[5:].strip()
+                if algo.is_connected():
+                    algo.send(message)
+                    print(f"[RPi → AlgoPC] {message}")
+                else:
+                    print("[WARN] Algo PC not connected")
+            elif cmd:
+                print("Unknown command. Use: status, send, custom, stm <cmd>, algo <text>, q")
+    
+    except KeyboardInterrupt:
+        print("\n\n[Mode 9] Interrupted by user")
+    finally:
+        running = False
+        executing_commands = False
+        algo.disconnect(keep_server=False)
+        imgpc.disconnect()
+        stm.disconnect()
+        print("\n[Mode 9] No-Bluetooth full mode ended")
+        print(f"[Mode 9] Total messages: Algo={msg_count['algo']}, ImgPC={msg_count['imgpc']}")
+
+
+# =============================================================================
 # Main Process Manager
 # =============================================================================
 class MultiProcessManager:
@@ -1966,12 +2864,14 @@ def select_run_mode() -> str:
     print("  5. Image Rec PC Communication Test (RPi ↔ ImgRec PC)")
     print("  6. Full Integration Simulation (BT + Algo + ImgRec, no STM32)")
     print("  7. STM32 Movement Test (BT + Algo + STM32, no camera)")
+    print("  8. No-Bluetooth Test (Algo + ImgRec, simulated movement)")
+    print("  9. No-Bluetooth Full (Algo + ImgRec + STM32, robot MOVES)")
     
     while True:
-        mode = input("\nSelect mode (1-7) >> ").strip()
-        if mode in ['1', '2', '3', '4', '5', '6', '7']:
+        mode = input("\nSelect mode (1-9) >> ").strip()
+        if mode in ['1', '2', '3', '4', '5', '6', '7', '8', '9']:
             return mode
-        print("Please enter 1-7")
+        print("Please enter 1-9")
 
 
 def select_task() -> int:
@@ -2041,3 +2941,11 @@ if __name__ == "__main__":
     elif run_mode == '7':
         # STM32 Movement Test (BT + Algo + STM32, no camera)
         run_stm32_movement_test()
+    
+    elif run_mode == '8':
+        # No-Bluetooth Test (Algo + ImgRec, hardcoded obstacles)
+        run_no_bt_test()
+    
+    elif run_mode == '9':
+        # No-Bluetooth Full (Algo + ImgRec + STM32, robot MOVES)
+        run_no_bt_full()
