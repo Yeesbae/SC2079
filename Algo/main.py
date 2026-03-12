@@ -117,7 +117,7 @@ def task_1(rpi_conn=None, solver=None):
         # solver.add_obstacle(x=18, y=18, direction=Direction.WEST,  obstacle_id=5)
 
         """5 Obstacles: Test Case 2"""
-        solver.add_obstacle(x=5,  y=18,  direction=Direction.SOUTH, obstacle_id=1)
+        solver.add_obstacle(x=0,  y=18,  direction=Direction.SOUTH, obstacle_id=1)
         solver.add_obstacle(x=25, y=5,  direction=Direction.WEST,  obstacle_id=2)
         solver.add_obstacle(x=35,  y=13, direction=Direction.WEST,  obstacle_id=3)
         solver.add_obstacle(x=25, y=23, direction=Direction.NORTH, obstacle_id=4)
