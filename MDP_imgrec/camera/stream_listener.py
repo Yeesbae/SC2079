@@ -79,6 +79,25 @@ class StreamListener:
                 continue
             # RPi typically outputs RGB, OpenCV uses BGR; convert if red/blue are swapped (e.g. brown appears blue)
             frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+            
+            # ========== Image brightness enhancement (enable if image is dim) ==========
+            # Uncomment ONE of these methods if camera image is too dark:
+            
+            # Method 1: Simple brightness adjustment (fast)
+            # brightness = 30  # Increase value for brighter image (0-100)
+            # frame = cv2.convertScaleAbs(frame, alpha=1.0, beta=brightness)
+            
+            # Method 2: Histogram equalization (better contrast)
+            # lab = cv2.cvtColor(frame, cv2.COLOR_BGR2LAB)
+            # lab[:,:,0] = cv2.equalizeHist(lab[:,:,0])
+            # frame = cv2.cvtColor(lab, cv2.COLOR_LAB2BGR)
+            
+            # Method 3: CLAHE - Adaptive histogram equalization (best quality)
+            # lab = cv2.cvtColor(frame, cv2.COLOR_BGR2LAB)
+            # clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
+            # lab[:,:,0] = clahe.apply(lab[:,:,0])
+            # frame = cv2.cvtColor(lab, cv2.COLOR_LAB2BGR)
+            # ============================================================================
 
             # ========== YOLO inference ==========
             res = self.model.predict(
