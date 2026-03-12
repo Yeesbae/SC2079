@@ -48,7 +48,7 @@ class StreamServer:
                 pass
 
     # main server thread.
-    def start(self, resolution=(640, 480), framerate=20, quality=45, is_outdoors=False):
+    def start(self, resolution=(1280, 720), framerate=20, quality=45, is_outdoors=False):
         equalizeHist = False
         # start main camera.
         # ========== NOTE: If not using Raspberry Pi camera, replace picamera2 section ==========

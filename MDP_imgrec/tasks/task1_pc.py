@@ -227,12 +227,27 @@ class Task1PC:
                     print("Received SEEN command - resetting detection state")
                     self.sent_images.clear()
 
-                if message_rcv.startswith("SNAP"):
+                if message_rcv == "SNAP_CANCEL":
+                    # Cancel pending SNAP - RPi timed out waiting for detection
+                    # This prevents stale SNAP from matching wrong images when robot moves
+                    if self.current_snap_obstacle_id is not None:
+                        print(f"[SNAP_CANCEL] Clearing pending SNAP for obstacle {self.current_snap_obstacle_id}")
+                        self.current_snap_obstacle_id = None
+                    else:
+                        print(f"[SNAP_CANCEL] No pending SNAP to cancel")
+
+                elif message_rcv.startswith("SNAP"):
                     # SNAP command format: "SNAP{obstacle_id}_{position}"
                     # e.g., "SNAP2_L" → obstacle_id = "2"
                     snap_body = message_rcv[4:]  # Remove "SNAP" prefix
                     parts = snap_body.split("_")
                     snap_obstacle_id = parts[0]
+                    
+                    # Log if overwriting a previous unconsumed SNAP
+                    if self.current_snap_obstacle_id is not None:
+                        print(f"[SNAP] WARNING: Previous SNAP for obstacle {self.current_snap_obstacle_id} "
+                              f"was not consumed, overwriting with obstacle {snap_obstacle_id}")
+                    
                     self.current_snap_obstacle_id = snap_obstacle_id
                     # NOTE: Do NOT clear sent_images here. This prevents the same
                     # image_id from being sent for multiple obstacles if the camera

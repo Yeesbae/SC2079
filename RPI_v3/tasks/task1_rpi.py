@@ -431,6 +431,11 @@ class Task1RPI:
             except Empty:
                 break
         
+        # Send SNAP_CANCEL first to clear any previous unconsumed SNAP
+        # This allows detection during travel but ensures clean slate for new SNAP
+        self.pc.send("SNAP_CANCEL")
+        print(f"[Task1] → ImgPC: SNAP_CANCEL (clearing previous SNAP before new one)")
+        
         # Send SNAP command to Image Rec PC to trigger detection
         # The PC will analyze the current frame and send back result
         self.pc.send(snap_cmd)
@@ -454,6 +459,8 @@ class Task1RPI:
             
         except Empty:
             print(f"[Task1] ⚠ Detection timeout for obstacle {obstacle_id}!")
+            # NOTE: Do NOT send SNAP_CANCEL here - allow detection during travel
+            # SNAP_CANCEL will be sent just before the next SNAP command
             # Still notify Android of timeout
             if self.on_image_detected:
                 self.on_image_detected(obstacle_id, "TIMEOUT", 0.0)

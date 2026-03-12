@@ -1110,6 +1110,12 @@ def run_full_integration_test():
                     except Empty:
                         break
                 
+                # Send SNAP_CANCEL first to clear any previous unconsumed SNAP
+                # This allows detection during travel but ensures clean slate for new SNAP
+                if imgpc.connected:
+                    imgpc.send("SNAP_CANCEL")
+                    print(f"[RPi → ImgPC] SNAP_CANCEL (clearing previous SNAP before new one)")
+                
                 # Send SNAP command to Image Rec PC
                 if imgpc.connected:
                     imgpc.send(cmd)
@@ -1137,6 +1143,8 @@ def run_full_integration_test():
                     
                 except Empty:
                     print(f"[SIM] ⚠ TIMEOUT waiting for detection of obstacle {obstacle_id}!")
+                    # NOTE: Do NOT send SNAP_CANCEL here - allow detection during travel
+                    # SNAP_CANCEL will be sent just before the next SNAP command
                     if bt.is_connected():
                         bt.send(f"TARGET,{obstacle_id},TIMEOUT")
                 
