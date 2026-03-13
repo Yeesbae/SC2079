@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:padding="16dp">
+
+    <TextView
+        android:id="@+id/tvDetectedImagesTitle"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Detected Images"
+        android:textStyle="bold"
+        android:textSize="18sp"
+        android:paddingBottom="12dp" />
+
+    <TextView
+        android:id="@+id/tvDetectedImagesEmpty"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="No images detected yet"
+        android:visibility="gone"
+        android:paddingBottom="8dp" />
+
+    <ScrollView
+        android:id="@+id/scrollDetectedImages"
+        android:layout_width="match_parent"
+        android:layout_height="400dp"
+        android:fillViewport="true">
+
+        <LinearLayout
+            android:id="@+id/containerDetectedImages"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical" />
+    </ScrollView>
+
+</LinearLayout>

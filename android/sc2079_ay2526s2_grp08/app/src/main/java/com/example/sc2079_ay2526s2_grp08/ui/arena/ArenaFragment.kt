@@ -6,10 +6,12 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.ArrayAdapter
 import android.widget.Button
+import android.widget.ImageView
+import android.widget.LinearLayout
+import android.widget.ScrollView
 import android.widget.EditText
 import android.widget.Spinner
 import android.widget.TextView
-import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.Lifecycle
@@ -45,6 +47,9 @@ class ArenaFragment : Fragment() {
         view.findViewById<Button>(R.id.btnObs6)?.setOnClickListener { showObstacleConfigDialog(6) }
         view.findViewById<Button>(R.id.btnObs7)?.setOnClickListener { showObstacleConfigDialog(7) }
         view.findViewById<Button>(R.id.btnObs8)?.setOnClickListener { showObstacleConfigDialog(8) }
+        view.findViewById<Button>(R.id.btnDetectedImages)?.setOnClickListener {
+            showDetectedImagesDialog()
+        }
 
         arenaView.setListener(object : ArenaView.Listener {
             override fun onArenaCellTap(x: Int, y: Int) {
@@ -109,19 +114,17 @@ class ArenaFragment : Fragment() {
         val panelConfig = dialogView.findViewById<View>(R.id.panelConfig)
         val panelImage = dialogView.findViewById<View>(R.id.panelImage)
 
+        val obstacle = viewModel.state.value.placedObstacles.find { it.protocolId == protocolId }
+        val etObsX = dialogView.findViewById<EditText>(R.id.etObsX)
+        val etObsY = dialogView.findViewById<EditText>(R.id.etObsY)
+        etObsX.setText((obstacle?.bottomLeftX ?: 0).toString())
+        etObsY.setText((obstacle?.bottomLeftY ?: 0).toString())
+
         val spFacing = dialogView.findViewById<Spinner>(R.id.spFacing)
         spFacing.adapter = ArrayAdapter(requireContext(), android.R.layout.simple_spinner_dropdown_item, DirectionUtil.faces)
 
         val iv = dialogView.findViewById<android.widget.ImageView>(R.id.ivObstacleImage)
         val tvEmpty = dialogView.findViewById<TextView>(R.id.tvNoImage)
-
-        val btnResetImage = dialogView.findViewById<Button>(R.id.btnResetImage)
-        btnResetImage.setOnClickListener {
-            viewModel.resetObstacleImage(protocolId)
-            iv.setImageDrawable(null)
-            iv.visibility = View.GONE
-            tvEmpty.visibility = View.VISIBLE
-        }
 
         fun switchToConfig() {
             panelConfig.visibility = View.VISIBLE
@@ -141,19 +144,16 @@ class ArenaFragment : Fragment() {
                 iv.setImageDrawable(null)
                 iv.visibility = View.GONE
                 tvEmpty.visibility = View.VISIBLE
-                btnResetImage.visibility = View.GONE
             } else {
                 val bmp = decodeScaled(bytes, 900, 900)
                 if (bmp != null) {
                     iv.setImageBitmap(bmp)
                     iv.visibility = View.VISIBLE
                     tvEmpty.visibility = View.GONE
-                    btnResetImage.visibility = View.VISIBLE
                 } else {
                     iv.setImageDrawable(null)
                     iv.visibility = View.GONE
                     tvEmpty.visibility = View.VISIBLE
-                    btnResetImage.visibility = View.GONE
                     tvEmpty.text = "Unable to decode image"
                 }
             }
@@ -164,15 +164,37 @@ class ArenaFragment : Fragment() {
 
         switchToConfig()
 
-        AlertDialog.Builder(requireContext())
+        val dialog = AlertDialog.Builder(requireContext())
             .setTitle("Obstacle $protocolId")
             .setView(dialogView)
-            .setPositiveButton("Save") { _, _ ->
-                val facing = DirectionUtil.fromProtocolToken(spFacing.selectedItem.toString())
-                viewModel.setPlacedFacing(protocolId, facing)
-            }
+            .setPositiveButton("Save", null)
+            .setNeutralButton("Reset Image", null)
             .setNegativeButton("Close", null)
             .show()
+
+        val hasImage = viewModel.state.value.obstacleImages[protocolId]?.isNotEmpty() == true
+        dialog.getButton(AlertDialog.BUTTON_NEUTRAL).visibility =
+            if (hasImage) View.VISIBLE else View.GONE
+
+        dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+            val obstacle = viewModel.state.value.placedObstacles.find { it.protocolId == protocolId }
+            val x = etObsX.text.toString().toIntOrNull()
+            val y = etObsY.text.toString().toIntOrNull()
+            val facing = DirectionUtil.fromProtocolToken(spFacing.selectedItem.toString())
+
+            if (obstacle != null && x != null && y != null && facing != null) {
+                viewModel.updatePlacedObstacleDirect(protocolId, x, y, facing)
+                dialog.dismiss()
+            }
+        }
+
+        dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener {
+            viewModel.resetObstacleImage(protocolId)
+
+            iv.setImageDrawable(null)
+            iv.visibility = View.GONE
+            tvEmpty.visibility = View.VISIBLE
+        }
     }
 
     private fun showObstacleConfigDialog(obstacleId: Int) {
@@ -220,6 +242,69 @@ class ArenaFragment : Fragment() {
                 viewModel.cancelPending()
             }
             .show()
+    }
+
+    private fun showDetectedImagesDialog() {
+        val dialogView = layoutInflater.inflate(R.layout.dialog_detected_images, null)
+
+        val tvEmpty = dialogView.findViewById<TextView>(R.id.tvDetectedImagesEmpty)
+        val container = dialogView.findViewById<LinearLayout>(R.id.containerDetectedImages)
+
+        fun renderDetectedImages() {
+            container.removeAllViews()
+
+            val state = viewModel.state.value
+
+            val items = state.obstacleImages
+                .mapNotNull { (protocolId, bytes) ->
+                    val obstacle = state.placedObstacles.find { it.protocolId == protocolId } ?: return@mapNotNull null
+                    Triple(protocolId, obstacle.targetId, bytes)
+                }
+                .sortedBy { (protocolId, _, _) ->
+                    protocolId.removePrefix("B").toIntOrNull() ?: Int.MAX_VALUE
+                }
+
+            if (items.isEmpty()) {
+                tvEmpty.visibility = View.VISIBLE
+                return
+            }
+
+            tvEmpty.visibility = View.GONE
+
+            for ((protocolId, targetId, bytes) in items) {
+                val itemView = layoutInflater.inflate(R.layout.item_detected_image, container, false)
+
+                val iv = itemView.findViewById<ImageView>(R.id.ivDetectedItem)
+                val tvObstacle = itemView.findViewById<TextView>(R.id.tvDetectedObstacleId)
+                val tvTarget = itemView.findViewById<TextView>(R.id.tvDetectedTargetId)
+
+                tvObstacle.text = "Obstacle: $protocolId"
+                tvTarget.text = "Image ID: ${targetId ?: "-"}"
+
+                val bmp = decodeScaled(bytes, 600, 600)
+                if (bmp != null) {
+                    iv.setImageBitmap(bmp)
+                } else {
+                    iv.setImageDrawable(null)
+                }
+
+                container.addView(itemView)
+            }
+        }
+
+        renderDetectedImages()
+
+        val dialog = AlertDialog.Builder(requireContext())
+            .setTitle("Detected Images")
+            .setView(dialogView)
+            .setPositiveButton("Close", null)
+            .setNeutralButton("Clear All Images", null)
+            .show()
+
+        dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener {
+            viewModel.clearAllDetectedImages()
+            renderDetectedImages()
+        }
     }
 
     private fun showRobotPoseDialog() {

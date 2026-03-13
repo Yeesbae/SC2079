@@ -97,5 +97,11 @@
         android:paddingRight="6dp"
         android:paddingTop="6dp" />
 
+    <Button
+        android:id="@+id/btnDetectedImages"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Detected Images" />
+
 
 </LinearLayout>

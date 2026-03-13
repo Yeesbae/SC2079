@@ -62,6 +62,7 @@ class ControllerFragment : Fragment(R.layout.fragment_controller) {
         view.findViewById<Button>(R.id.btnObs6)?.setOnClickListener { showObstacleConfigDialog(6) }
         view.findViewById<Button>(R.id.btnObs7)?.setOnClickListener { showObstacleConfigDialog(7) }
         view.findViewById<Button>(R.id.btnObs8)?.setOnClickListener { showObstacleConfigDialog(8) }
+        view.findViewById<Button>(R.id.btnStopRun)?.setOnClickListener { viewModel.stopCurrentRun() }
 
         val s0 = viewModel.state.value
         if (s0.arena == null) {
@@ -191,14 +192,6 @@ class ControllerFragment : Fragment(R.layout.fragment_controller) {
         val iv = dialogView.findViewById<android.widget.ImageView>(R.id.ivObstacleImage)
         val tvEmpty = dialogView.findViewById<TextView>(R.id.tvNoImage)
 
-        val btnResetImage = dialogView.findViewById<Button>(R.id.btnResetImage)
-        btnResetImage.setOnClickListener {
-            viewModel.resetObstacleImage(protocolId)
-            iv.setImageDrawable(null)
-            iv.visibility = View.GONE
-            tvEmpty.visibility = View.VISIBLE
-        }
-
         fun switchToConfig() {
             panelConfig.visibility = View.VISIBLE
             panelImage.visibility = View.GONE
@@ -217,19 +210,16 @@ class ControllerFragment : Fragment(R.layout.fragment_controller) {
                 iv.setImageDrawable(null)
                 iv.visibility = View.GONE
                 tvEmpty.visibility = View.VISIBLE
-                btnResetImage.visibility = View.GONE
             } else {
                 val bmp = decodeScaled(bytes, 900, 900)
                 if (bmp != null) {
                     iv.setImageBitmap(bmp)
                     iv.visibility = View.VISIBLE
                     tvEmpty.visibility = View.GONE
-                    btnResetImage.visibility = View.VISIBLE
                 } else {
                     iv.setImageDrawable(null)
                     iv.visibility = View.GONE
                     tvEmpty.visibility = View.VISIBLE
-                    btnResetImage.visibility = View.GONE
                     tvEmpty.text = "Unable to decode image"
                 }
             }
@@ -240,21 +230,37 @@ class ControllerFragment : Fragment(R.layout.fragment_controller) {
 
         switchToConfig()
 
-        AlertDialog.Builder(requireContext())
+        val dialog = AlertDialog.Builder(requireContext())
             .setTitle("Obstacle $protocolId")
             .setView(dialogView)
-            .setPositiveButton("Save") { _, _ ->
-                val obstacle = viewModel.state.value.placedObstacles.find { it.protocolId == protocolId }
-                val x = etObsX.text.toString().toIntOrNull()
-                val y = etObsY.text.toString().toIntOrNull()
-                val facing = DirectionUtil.fromProtocolToken(spFacing.selectedItem.toString())
-
-                if (obstacle != null && x != null && y != null && facing != null) {
-                    viewModel.updatePlacedObstacleDirect(protocolId, x, y, facing)
-                }
-            }
+            .setPositiveButton("Save", null)
+            .setNeutralButton("Reset Image", null)
             .setNegativeButton("Close", null)
             .show()
+
+        val hasImage = viewModel.state.value.obstacleImages[protocolId]?.isNotEmpty() == true
+        dialog.getButton(AlertDialog.BUTTON_NEUTRAL).visibility =
+            if (hasImage) View.VISIBLE else View.GONE
+
+        dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+            val obstacle = viewModel.state.value.placedObstacles.find { it.protocolId == protocolId }
+            val x = etObsX.text.toString().toIntOrNull()
+            val y = etObsY.text.toString().toIntOrNull()
+            val facing = DirectionUtil.fromProtocolToken(spFacing.selectedItem.toString())
+
+            if (obstacle != null && x != null && y != null && facing != null) {
+                viewModel.updatePlacedObstacleDirect(protocolId, x, y, facing)
+                dialog.dismiss()
+            }
+        }
+
+        dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener {
+            viewModel.resetObstacleImage(protocolId)
+
+            iv.setImageDrawable(null)
+            iv.visibility = View.GONE
+            tvEmpty.visibility = View.VISIBLE
+        }
     }
 
     private fun showRobotPoseDialog() {

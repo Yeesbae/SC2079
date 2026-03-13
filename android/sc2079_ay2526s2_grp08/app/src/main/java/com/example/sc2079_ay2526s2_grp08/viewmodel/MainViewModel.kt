@@ -295,6 +295,17 @@ class MainViewModel(
         runTimerJob = null
     }
 
+    fun stopCurrentRun() {
+        playbackJob?.cancel()
+        playbackJob = null
+        playbackQueue.clear()
+        waitingForSnap = false
+        currentSnapObstacleId = null
+        stopRunTimer()
+        _state.update { it.copy(executionMode = ExecutionMode.NONE) }
+        log(LogEntry.Kind.INFO, "RUN STOPPED MANUALLY")
+    }
+
     fun sendStartExploration() {
         val s = _state.value
         val arena = s.arena ?: return
@@ -327,7 +338,6 @@ class MainViewModel(
         log(LogEntry.Kind.OUT, """{"cmd":"START_FAST"}""")
         _state.update { it.copy(executionMode = ExecutionMode.FASTEST) }
     }
-    fun sendStop() = send(Outgoing.StopRobot)
 
     /** Send a raw string (for debugging or unsupported commands) */
     fun sendRaw(line: String) = send(Outgoing.Raw(line))
@@ -342,6 +352,21 @@ class MainViewModel(
                 placedObstacles = emptyList(),
                 usedTargetObstacleIds = emptySet(),
             )
+        }
+    }
+
+    fun clearAllDetectedImages() {
+        _state.update { state ->
+            val updated = state.placedObstacles.map {
+                it.copy(targetId = null)
+            }
+
+            state.copy(
+                placedObstacles = updated,
+                obstacleImages = emptyMap(),
+                lastImageBytes = null,
+                selectedObstacleId = null
+            ).withArenaDerivedFromPlacedObstacles()
         }
     }
 
@@ -469,20 +494,46 @@ class MainViewModel(
     }
 
     private suspend fun executeArcTurn(left: Boolean, front: Boolean) {
-        val sideSteps = 25 / 5
-        val longitudinalSteps = 40 / 5
 
-        repeat(sideSteps) {
-            _state.update { s -> RobotReducer.applySideShift(s, left = left) }
-            delay(120)
+        val shortSteps = 25 / 5
+        val longSteps = 40 / 5
+
+        if (front) {
+            // FR / FL
+            repeat(shortSteps) {
+                _state.update { s ->
+                    RobotReducer.applyLocalMove(s, forward = true)
+                }
+                delay(120)
+            }
+
+            repeat(longSteps) {
+                _state.update { s ->
+                    RobotReducer.applySideShift(s, left = left)
+                }
+                delay(120)
+            }
+
+        } else {
+            // BR / BL
+            repeat(longSteps) {
+                _state.update { s ->
+                    RobotReducer.applyLocalMove(s, forward = false)
+                }
+                delay(120)
+            }
+
+            repeat(shortSteps) {
+                _state.update { s ->
+                    RobotReducer.applySideShift(s, left = left)
+                }
+                delay(120)
+            }
         }
 
-        repeat(longitudinalSteps) {
-            _state.update { s -> RobotReducer.applyLocalMove(s, forward = front) }
-            delay(120)
+        _state.update { s ->
+            RobotReducer.applyLocalTurn(s, left = left)
         }
-
-        _state.update { s -> RobotReducer.applyLocalTurn(s, left = left) }
     }
 
     private fun send(msg: Outgoing) {
@@ -507,6 +558,7 @@ class MainViewModel(
         waitingForSnap = false
         currentSnapObstacleId = null
         stopRunTimer()
+        _state.update { it.copy(executionMode = ExecutionMode.NONE) }
         log(LogEntry.Kind.INFO, "PLAYBACK FINISHED")
     }
 
@@ -523,16 +575,29 @@ class MainViewModel(
             }
 
             is BluetoothManager.Event.ImageReceived -> {
-                log(LogEntry.Kind.INFO, "IMG: ${ev.obstacleId} -> ${ev.targetId} face=${ev.face ?: "-"} bytes=${ev.bytes.size}")
+                val protocolId = if (ev.obstacleId.startsWith("B")) ev.obstacleId else "B${ev.obstacleId}"
+
+                log(
+                    LogEntry.Kind.INFO,
+                    "IMG: $protocolId -> ${ev.targetId} face=${ev.face ?: "-"} bytes=${ev.bytes.size}"
+                )
 
                 _state.update { s ->
                     val faceDir = ev.face?.let { DirectionUtil.fromProtocolToken(it) }
-                    val s2 = PlacementReducer.onTargetDetected(s, ev.obstacleId, ev.targetId, faceDir)
+                    val s2 = PlacementReducer.onTargetDetected(s, protocolId, ev.targetId, faceDir)
                     s2.copy(
                         obstacleImages = s2.obstacleImages + (ev.obstacleId to ev.bytes),
                         lastImageBytes = ev.bytes,
                         selectedObstacleId = ev.obstacleId
                     )
+                }
+
+                if (waitingForSnap) {
+                    if (currentSnapObstacleId == null || protocolId == currentSnapObstacleId) {
+                        waitingForSnap = false
+                        currentSnapObstacleId = null
+                        runPlaybackQueueIfIdle()
+                    }
                 }
             }
 
@@ -622,6 +687,7 @@ class MainViewModel(
                     .forEach { playbackQueue.add(it) }
                 runPlaybackQueueIfIdle()
             }
+            is Incoming.PlaybackFinished -> handlePlaybackFinished()
 
             // Raw/unrecognized
             is Incoming.Raw -> { /* Already logged */ }
@@ -645,17 +711,23 @@ class MainViewModel(
      */
     private fun handleTargetDetected(msg: Incoming.TargetDetected) {
         val protocolId = if (msg.obstacleId.startsWith("B")) msg.obstacleId else "B${msg.obstacleId}"
-        _state.update { s -> PlacementReducer.onTargetDetected(s, protocolId, msg.targetId, msg.face) }
-        log(LogEntry.Kind.INFO, "TARGET: ${msg.obstacleId} -> ${msg.targetId}")
+        if (msg.targetId.equals("TIMEOUT", ignoreCase = true)) {
+            log(LogEntry.Kind.INFO, "TARGET TIMEOUT: $protocolId")
 
-        if (waitingForSnap) {
-            if (msg.targetId.equals("TIMEOUT", ignoreCase = true) ||
-                currentSnapObstacleId == null ||
-                protocolId == currentSnapObstacleId) {
+            if (waitingForSnap && (currentSnapObstacleId == null || protocolId == currentSnapObstacleId)) {
                 waitingForSnap = false
                 currentSnapObstacleId = null
                 runPlaybackQueueIfIdle()
             }
+            return
+        }
+        _state.update { s -> PlacementReducer.onTargetDetected(s, protocolId, msg.targetId, msg.face) }
+        log(LogEntry.Kind.INFO, "TARGET: ${msg.obstacleId} -> ${msg.targetId}")
+
+        if (waitingForSnap && (currentSnapObstacleId == null || protocolId == currentSnapObstacleId)) {
+            waitingForSnap = false
+            currentSnapObstacleId = null
+            runPlaybackQueueIfIdle()
         }
     }
 

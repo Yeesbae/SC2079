@@ -18,6 +18,7 @@ sealed interface Incoming {
     data class ObstacleRemoved(val obstacleId: String) : Incoming
 
     data class CommandBatch(val commands: List<String>) : Incoming
+    object PlaybackFinished : Incoming
 
     data class Raw(val line: String) : Incoming
 }

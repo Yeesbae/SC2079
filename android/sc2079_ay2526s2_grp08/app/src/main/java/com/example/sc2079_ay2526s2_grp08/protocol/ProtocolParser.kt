@@ -98,6 +98,9 @@ object ProtocolParser {
      */
     private fun parseTargetDetected(parts: List<String>): Incoming? {
         if (parts.size < 3) return null
+        if (parts[0].equals("TARGET", ignoreCase = true) && parts[1].equals("DONE", ignoreCase = true) && parts[2].equals("FIN", ignoreCase = true)) {
+            return Incoming.PlaybackFinished
+        }
         val obstacleId = if (parts[1].startsWith("B")) parts[1] else "B${parts[1]}"
         val targetId = parts[2]
         val face = if (parts.size >= 4) parseDirection(parts[3]) else null
