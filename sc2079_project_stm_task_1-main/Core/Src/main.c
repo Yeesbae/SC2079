@@ -63,6 +63,9 @@
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
+ADC_HandleTypeDef hadc1;
+ADC_HandleTypeDef hadc2;
+
 I2C_HandleTypeDef hi2c2;
 
 TIM_HandleTypeDef htim1;
@@ -78,49 +81,49 @@ osThreadId_t defaultTaskHandle;
 const osThreadAttr_t defaultTask_attributes = {
   .name = "defaultTask",
   .stack_size = 128 * 4,
-  .priority = (osPriority_t) osPriorityLow,
+  .priority = (osPriority_t) osPriorityNormal,
 };
 /* Definitions for communicateTask */
 osThreadId_t communicateTaskHandle;
 const osThreadAttr_t communicateTask_attributes = {
   .name = "communicateTask",
   .stack_size = 512 * 4,
-  .priority = (osPriority_t) osPriorityLow,
+  .priority = (osPriority_t) osPriorityRealtime,
 };
 /* Definitions for motorTask */
 osThreadId_t motorTaskHandle;
 const osThreadAttr_t motorTask_attributes = {
   .name = "motorTask",
   .stack_size = 512 * 4,
-  .priority = (osPriority_t) osPriorityLow,
+  .priority = (osPriority_t) osPriorityRealtime,
 };
 /* Definitions for encoderTask */
 osThreadId_t encoderTaskHandle;
 const osThreadAttr_t encoderTask_attributes = {
   .name = "encoderTask",
   .stack_size = 512 * 4,
-  .priority = (osPriority_t) osPriorityLow,
+  .priority = (osPriority_t) osPriorityRealtime,
 };
 /* Definitions for gyroTask */
 osThreadId_t gyroTaskHandle;
 const osThreadAttr_t gyroTask_attributes = {
   .name = "gyroTask",
   .stack_size = 512 * 4,
-  .priority = (osPriority_t) osPriorityLow,
+  .priority = (osPriority_t) osPriorityRealtime,
 };
 /* Definitions for OLEDTask */
 osThreadId_t OLEDTaskHandle;
 const osThreadAttr_t OLEDTask_attributes = {
   .name = "OLEDTask",
   .stack_size = 256 * 4,
-  .priority = (osPriority_t) osPriorityLow,
+  .priority = (osPriority_t) osPriorityNormal,
 };
 /* Definitions for ultrasonicTask */
 osThreadId_t ultrasonicTaskHandle;
 const osThreadAttr_t ultrasonicTask_attributes = {
   .name = "ultrasonicTask",
   .stack_size = 512 * 4,
-  .priority = (osPriority_t) osPriorityLow,
+  .priority = (osPriority_t) osPriorityNormal,
 };
 /* USER CODE BEGIN PV */
 
@@ -165,6 +168,11 @@ volatile uint32_t cnt_gyro = 0;
 volatile uint32_t cnt_oled = 0;
 volatile uint32_t cnt_ultrasonic = 0;
 
+volatile uint16_t irDistance1 = 0;  // IR sensor 1 distance in cm
+volatile uint16_t irDistance2 = 0;  // IR sensor 2 distance in cm
+volatile uint32_t irRaw1 = 0;      // raw ADC value for debug
+volatile uint32_t irRaw2 = 0;
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -177,6 +185,8 @@ static void MX_TIM4_Init(void);
 static void MX_TIM2_Init(void);
 static void MX_TIM3_Init(void);
 static void MX_TIM12_Init(void);
+static void MX_ADC1_Init(void);
+static void MX_ADC2_Init(void);
 void StartDefaultTask(void *argument);
 void startCommunicateTask(void *argument);
 void startMotorTask(void *argument);
@@ -222,6 +232,32 @@ static void fatal_blink_and_park(void){
     // Park forever (low power)
     for(;;){ __WFI(); }
 }
+
+static uint32_t ADC_Read(ADC_HandleTypeDef *hadc)
+{
+    HAL_ADC_Start(hadc);
+    if (HAL_ADC_PollForConversion(hadc, HAL_MAX_DELAY) != HAL_OK) {
+        HAL_ADC_Stop(hadc);
+        return 0;
+    }
+    uint32_t value = HAL_ADC_GetValue(hadc);
+    HAL_ADC_Stop(hadc);
+    return value;
+}
+
+static uint16_t IR_ADC_to_Distance_cm(uint32_t adc_raw)
+{
+    float voltage = (float)adc_raw * 3.3f / 4095.0f;
+
+    if (voltage <= 0.1f)
+        return 80;
+
+    float distance = 27.86f / (voltage - 0.1f);
+
+    if (distance < 10.0f) return 10;
+    if (distance > 80.0f) return 80;
+    return (uint16_t)(distance + 0.5f);
+}
 /* USER CODE END 0 */
 
 /**
@@ -257,6 +293,8 @@ int main(void)
   MX_TIM2_Init();
   MX_TIM3_Init();
   MX_TIM12_Init();
+  MX_ADC1_Init();
+  //MX_ADC2_Init();  // disabled for testing — IR2 not connected
   /* USER CODE BEGIN 2 */
 
   OLED_Init();
@@ -421,6 +459,110 @@ void SystemClock_Config(void)
   {
     Error_Handler();
   }
+}
+
+/**
+  * @brief ADC1 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_ADC1_Init(void)
+{
+
+  /* USER CODE BEGIN ADC1_Init 0 */
+
+  /* USER CODE END ADC1_Init 0 */
+
+  ADC_ChannelConfTypeDef sConfig = {0};
+
+  /* USER CODE BEGIN ADC1_Init 1 */
+
+  /* USER CODE END ADC1_Init 1 */
+
+  /** Configure the global features of the ADC (Clock, Resolution, Data Alignment and number of conversion)
+  */
+  hadc1.Instance = ADC1;
+  hadc1.Init.ClockPrescaler = ADC_CLOCK_SYNC_PCLK_DIV4;
+  hadc1.Init.Resolution = ADC_RESOLUTION_12B;
+  hadc1.Init.ScanConvMode = DISABLE;
+  hadc1.Init.ContinuousConvMode = DISABLE;
+  hadc1.Init.DiscontinuousConvMode = DISABLE;
+  hadc1.Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_NONE;
+  hadc1.Init.ExternalTrigConv = ADC_SOFTWARE_START;
+  hadc1.Init.DataAlign = ADC_DATAALIGN_RIGHT;
+  hadc1.Init.NbrOfConversion = 1;
+  hadc1.Init.DMAContinuousRequests = DISABLE;
+  hadc1.Init.EOCSelection = ADC_EOC_SINGLE_CONV;
+  if (HAL_ADC_Init(&hadc1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  /** Configure for the selected ADC regular channel its corresponding rank in the sequencer and its sample time.
+  */
+  sConfig.Channel = ADC_CHANNEL_10;
+  sConfig.Rank = 1;
+  sConfig.SamplingTime = ADC_SAMPLETIME_84CYCLES;
+  if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN ADC1_Init 2 */
+
+  /* USER CODE END ADC1_Init 2 */
+
+}
+
+/**
+  * @brief ADC2 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_ADC2_Init(void)
+{
+
+  /* USER CODE BEGIN ADC2_Init 0 */
+
+  /* USER CODE END ADC2_Init 0 */
+
+  ADC_ChannelConfTypeDef sConfig = {0};
+
+  /* USER CODE BEGIN ADC2_Init 1 */
+
+  /* USER CODE END ADC2_Init 1 */
+
+  /** Configure the global features of the ADC (Clock, Resolution, Data Alignment and number of conversion)
+  */
+  hadc2.Instance = ADC2;
+  hadc2.Init.ClockPrescaler = ADC_CLOCK_SYNC_PCLK_DIV4;
+  hadc2.Init.Resolution = ADC_RESOLUTION_12B;
+  hadc2.Init.ScanConvMode = DISABLE;
+  hadc2.Init.ContinuousConvMode = DISABLE;
+  hadc2.Init.DiscontinuousConvMode = DISABLE;
+  hadc2.Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_NONE;
+  hadc2.Init.ExternalTrigConv = ADC_SOFTWARE_START;
+  hadc2.Init.DataAlign = ADC_DATAALIGN_RIGHT;
+  hadc2.Init.NbrOfConversion = 1;
+  hadc2.Init.DMAContinuousRequests = DISABLE;
+  hadc2.Init.EOCSelection = ADC_EOC_SINGLE_CONV;
+  if (HAL_ADC_Init(&hadc2) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  /** Configure for the selected ADC regular channel its corresponding rank in the sequencer and its sample time.
+  */
+  sConfig.Channel = ADC_CHANNEL_11;
+  sConfig.Rank = 1;
+  sConfig.SamplingTime = ADC_SAMPLETIME_84CYCLES;
+  if (HAL_ADC_ConfigChannel(&hadc2, &sConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN ADC2_Init 2 */
+
+  /* USER CODE END ADC2_Init 2 */
+
 }
 
 /**
@@ -785,11 +927,11 @@ static void MX_GPIO_Init(void)
 
   /* GPIO Ports Clock Enable */
   __HAL_RCC_GPIOH_CLK_ENABLE();
+  __HAL_RCC_GPIOC_CLK_ENABLE();
   __HAL_RCC_GPIOA_CLK_ENABLE();
   __HAL_RCC_GPIOE_CLK_ENABLE();
   __HAL_RCC_GPIOB_CLK_ENABLE();
   __HAL_RCC_GPIOD_CLK_ENABLE();
-  __HAL_RCC_GPIOC_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(LED3_GPIO_Port, LED3_Pin, GPIO_PIN_RESET);
@@ -1299,31 +1441,17 @@ void startEncoderTask(void *argument)
   /* USER CODE END startEncoderTask */
 }
 
+/* USER CODE BEGIN Header_startGyroTask */
 #define WARMUP_MS                300U
-#define INIT_AVG_MS              300U        // initial bias average duration
-
-// Motion detection
-#define STILL_THRESH_DPS         2.0f        // if |z - bias| < this → “still”
-#define STILL_GATE_MS            200U        // must stay still this long before learning bias
-
-// Bias adaptation (slow!)
-#define BIAS_TAU_SEC             10.0f       // time constant for bias learning when still
-
-// Filtering / sanitizing
-#define DEADBAND_DPS             0.5f        // zero-out tiny residual noise
-#define MAX_STEP_DPS             500.0f      // reject crazy spikes between samples
-
-// Optional overall scale trim (set to 1.0, or update after a 360° check)
+#define INIT_AVG_MS              300U
+#define STILL_THRESH_DPS         2.0f
+#define STILL_GATE_MS            200U
+#define BIAS_TAU_SEC             10.0f
+#define DEADBAND_DPS             0.5f
+#define MAX_STEP_DPS             500.0f
 static float k_scale = 1.0f;
 #define GZ_SIGN (+1)
 
-/* USER CODE BEGIN Header_startGyroTask */
-/**
-* @brief Function implementing the gyroTask thread.
-* @param argument: Not used
-* @retval None
-*/
-/* USER CODE END Header_startGyroTask */
 static inline float wrap_deg(float a) {
     while (a > 180.0f) a -= 360.0f;
     while (a < -180.0f) a += 360.0f;
@@ -1334,12 +1462,12 @@ typedef enum {
     TOO_RIGHT,
     TOO_LEFT
 } ErrorAngle;
-
+/* USER CODE END Header_startGyroTask */
 void startGyroTask(void *argument)
 {
+  /* USER CODE BEGIN startGyroTask */
 	(void)ICM20948_init(&imu, &hi2c2);
 
-	// Quick initial bias average (short & simple)
 	float bias = 0.0f; uint32_t n = 0;
 	uint32_t next = osKernelGetTickCount();
 	for (int i = 0; i < 25; ++i) {
@@ -1353,48 +1481,41 @@ void startGyroTask(void *argument)
 
 	gyro_ready = 1;
 
-	// Runtime state
 	total_angle = 0.0;
 	uint32_t last_tick = osKernelGetTickCount();
 	uint32_t still_since = 0;
 
 	for (;;) {
-		cnt_gyro++;  // Task counter
+		cnt_gyro++;
 
-		// Periodic wakeup; absolute scheduling
 		osDelayUntil(next += GYRO_SAMPLE_MS);
 		uint32_t now = osKernelGetTickCount();
-		float dt = (now - last_tick) * 0.001f;   // ms -> s
+		float dt = (now - last_tick) * 0.001f;
 		last_tick = now;
-		if (dt <= 0.0f) dt = GYRO_SAMPLE_MS * 0.001f; // guard
+		if (dt <= 0.0f) dt = GYRO_SAMPLE_MS * 0.001f;
 
 		if (ICM20948_readGyroscope_allAxises(&imu) != 0) continue;
 
-		// Make left-turn positive
-		float z_meas = (float)GZ_SIGN * imu.gyro[2];   // deg/s
+		float z_meas = (float)GZ_SIGN * imu.gyro[2];
 
-		// Slow bias learn ONLY when nearly still
 		float ez = z_meas - bias;
 		bool still = fabsf(ez) < STILL_THRESH_DPS;
 		if (still) {
 			if (!still_since) still_since = now;
 			else if ((now - still_since) >= STILL_GATE_MS) {
 				float alpha = dt / (BIAS_TAU_SEC > 0 ? BIAS_TAU_SEC : 1.0f);
-				if (alpha > 0.05f) alpha = 0.05f;      // cap if dt got large
+				if (alpha > 0.05f) alpha = 0.05f;
 				bias += alpha * (z_meas - bias);
 			}
 		} else {
 			still_since = 0;
 		}
 
-		// Debiased rate + deadband
 		float z_dps = z_meas - bias;
 		if (fabsf(z_dps) < DEADBAND_DPS) z_dps = 0.0f;
 
-		// Monotonic accumulation (left positive). No wrapping.
 		total_angle += (double)z_dps * (double)dt;
 
-		// Optional debug mirror
 		temp3 = (float)total_angle;
 
 		error_angle = target_angle - total_angle;
@@ -1407,16 +1528,14 @@ void startGyroTask(void *argument)
 
 				const int step = 5;
 
-				// Direction sign: when (leftTarget - leftEncoderVal) < 0, keep sign (+1); else flip (-1)
 				int dir_sign = ((leftTarget - leftEncoderVal) > 0) ? +1 : -1;
 
-				// Error sign from enum
 				int err_sign = 0;
 				if (error_angle > 0) err_sign = -1;
 				else if (error_angle < 0) err_sign = +1;
 
 				if (err_sign != 0) {
-					int delta = dir_sign * err_sign * step;     // +step or -step depending on both signs
+					int delta = dir_sign * err_sign * step;
 					int cand  = (int)(SERVOCENTER) + delta;
 
 					pwmVal_servo = cand;
@@ -1427,6 +1546,7 @@ void startGyroTask(void *argument)
 			};
 		}
 	}
+  /* USER CODE END startGyroTask */
 }
 
 /* USER CODE BEGIN Header_startOLEDTask */
@@ -1435,116 +1555,48 @@ void startGyroTask(void *argument)
 //* @param argument: Not used
 //* @retval None
 //*/
-///* USER CODE END Header_startOLEDTask */
-//void startOLEDTask(void *argument)
-//{
-//  /* USER CODE BEGIN startOLEDTask */
-//	uint8_t usVal[20] = { 0 };
-//	uint8_t gyroVal[20] = { 0 };
-//	uint8_t command[20] = { 0 };
-//	uint8_t err_gyro[20] = { 0 };
-//	uint8_t err_enc[20] = { 0 };
-////	uint8_t temp_buf[20] = { 0 };
-//
-//  /* Infinite loop */
-//  for(;;)
-//  {
-//	sprintf(usVal, "Distance: %d \0", (int) uDistance);
-//	OLED_ShowString(0, 10, usVal);
-//
-//	int decimals = abs((int) ((error_angle - (int) (error_angle)) * 1000));
-//	sprintf(gyroVal, "EGyro: %d.%d \0", (int) error_angle, decimals);
-//	OLED_ShowString(0, 20, gyroVal);
-//
-//	decimals = abs((int) ((total_angle - (int) (total_angle)) * 1000));
-//	sprintf(gyroVal, "TGyro: %d.%d \0", (int) total_angle, decimals);
-//	OLED_ShowString(0, 30, gyroVal);
-//
-//	sprintf(command, "C: %c%c%c%c%c \0", aRxBuffer[0], aRxBuffer[1],
-//			aRxBuffer[2], aRxBuffer[3], aRxBuffer[4]);
-//	OLED_ShowString(0, 40, command);
-//
-//	sprintf(err_gyro, "errG: %.2f \0", error_angle);
-//	OLED_ShowString(0, 20, err_gyro);
-//	sprintf(err_enc, "errE: %.2f %.2f \0", leftTarget-leftEncoderVal, rightTarget-rightEncoderVal);
-//	OLED_ShowString(0, 30, err_enc);
-//
-////	uint8_t temp_buf[20] = { 0 };
-////	sprintf(temp_buf, "temp: %u", temp);
-////	OLED_ShowString(0, 50, temp_buf);
-//
-//	OLED_Refresh_Gram();
-//	osDelay(100);
-//	OLED_Clear();
-//  }
-//  /* USER CODE END startOLEDTask */
-//}
-
-// Declare external counters
-extern volatile uint32_t uart_rx_count;
-extern volatile uint32_t uart_error_count;
-extern volatile uint32_t cnt_communicate;
-extern volatile uint32_t cnt_motor;
-extern volatile uint32_t cnt_encoder;
-extern volatile uint32_t cnt_gyro;
-extern volatile uint32_t cnt_ultrasonic;
-
+/* USER CODE END Header_startOLEDTask */
 void startOLEDTask(void *argument)
 {
   /* USER CODE BEGIN startOLEDTask */
-	char line1[22];
-	char line2[22];
-	char line3[22];
-	char line4[22];
-	char line5[22];
+  char line1[22], line2[22], line3[22], line4[22], line5[22];
 
   /* Infinite loop */
   for(;;)
   {
-	cnt_oled++;  // Task counter
+    cnt_oled++;
+    OLED_Clear();
 
-	OLED_Clear();
+    snprintf(line1, sizeof(line1), "US: %ucm", (unsigned)uDistance);
+    OLED_ShowString(0, 0, (uint8_t*)line1);
 
-	// Line 1: UART RX counter and Error counter
-	snprintf(line1, sizeof(line1), "RX:%lu ERR:%lu", uart_rx_count, uart_error_count);
-	OLED_ShowString(0, 0, (uint8_t*)line1);
+    snprintf(line2, sizeof(line2), "IR1:%ucm IR2:%ucm",
+             (unsigned)irDistance1, (unsigned)irDistance2);
+    OLED_ShowString(0, 12, (uint8_t*)line2);
 
-	// Line 2: Command buffer
-	snprintf(line2, sizeof(line2), "BUF:%c%c%c%c%c",
-			aRxBuffer[0], aRxBuffer[1], aRxBuffer[2], aRxBuffer[3], aRxBuffer[4]);
-	OLED_ShowString(0, 12, (uint8_t*)line2);
+    snprintf(line3, sizeof(line3), "R1:%lu R2:%lu",
+            (unsigned long)irRaw1, (unsigned long)irRaw2);
+    OLED_ShowString(0, 24, (uint8_t*)line3);
 
-	// Line 3: UART state and RXNE interrupt enable check
-	// CR1 bit 5 = RXNEIE (RX Not Empty Interrupt Enable)
-	uint32_t rxneie = (USART3->CR1 >> 5) & 1;
-	uint32_t nvic_en = NVIC_GetEnableIRQ(USART3_IRQn);
-	snprintf(line3, sizeof(line3), "RXNEIE:%lu NVIC:%lu", rxneie, nvic_en);
-	OLED_ShowString(0, 24, (uint8_t*)line3);
+    snprintf(line4, sizeof(line4), "RX:%lu ERR:%lu", uart_rx_count, uart_error_count);
+    OLED_ShowString(0, 36, (uint8_t*)line4);
 
-	// Line 4: USART3 Status Register (SR)
-	// Bit 5=RXNE (data ready), Bit 6=TC, Bit 7=TXE
-	snprintf(line4, sizeof(line4), "SR:0x%04lX", (USART3->SR & 0xFFFF));
-	OLED_ShowString(0, 36, (uint8_t*)line4);
+    snprintf(line5, sizeof(line5), "BUF:%c%c%c%c%c",
+            aRxBuffer[0], aRxBuffer[1], aRxBuffer[2], aRxBuffer[3], aRxBuffer[4]);
+    OLED_ShowString(0, 48, (uint8_t*)line5);
 
-	// Line 5: RxState and RxXferCount
-	snprintf(line5, sizeof(line5), "St:0x%02X Cnt:%d",
-			(unsigned int)huart3.RxState, (int)huart3.RxXferCount);
-	OLED_ShowString(0, 48, (uint8_t*)line5);
+    if (cnt_oled % 20 == 0) {
+        char debug[80];
+        snprintf(debug, sizeof(debug), "HB C:%lu M:%lu E:%lu G:%lu U:%lu\r\n",
+                 cnt_communicate, cnt_motor, cnt_encoder, cnt_gyro, cnt_ultrasonic);
+        HAL_UART_Transmit(&huart3, (uint8_t*)debug, strlen(debug), 50);
+    }
 
-	// Send periodic heartbeat to Python (every ~2 seconds) with task counters
-	if (cnt_oled % 20 == 0) {
-		char debug[80];
-		snprintf(debug, sizeof(debug), "HB C:%lu M:%lu E:%lu G:%lu U:%lu\r\n",
-		         cnt_communicate, cnt_motor, cnt_encoder, cnt_gyro, cnt_ultrasonic);
-		HAL_UART_Transmit(&huart3, (uint8_t*)debug, strlen(debug), 50);
-	}
-
-	OLED_Refresh_Gram();
-	osDelay(100);
+    OLED_Refresh_Gram();
+    osDelay(100);
   }
   /* USER CODE END startOLEDTask */
 }
-
 
 /* USER CODE BEGIN Header_startUltrasonicTask */
 /**
@@ -1565,15 +1617,12 @@ void startUltrasonicTask(void *argument)
 	  cnt_ultrasonic++;  // Task counter
 
 	  HCSR04_Read();
-	  //		if(k==1){
-	  //			moveCarRight(360);
-	  //			k++;
-	  //		}
-	  //		if (uDistance <= 15) {
-		//			stopped = 1;
-		//			moveCarStop();
-		//			vTaskSuspend(ultrasonicTaskHandle);
-		//		}
+
+	  // Read IR1 only — IR2 disabled for testing
+	  irRaw1 = ADC_Read(&hadc1);  // ADC1 CH10 = PC0
+	  irDistance1 = IR_ADC_to_Distance_cm(irRaw1);
+	  //irRaw2 = ADC_Read(&hadc2);  // ADC2 CH11 = PC1
+	  //irDistance2 = IR_ADC_to_Distance_cm(irRaw2);
 
 		osDelay(100);
 }

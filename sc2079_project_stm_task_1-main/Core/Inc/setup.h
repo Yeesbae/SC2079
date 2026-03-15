@@ -23,6 +23,10 @@ extern volatile uint16_t uDistance;
 extern int k;
 extern TIM_HandleTypeDef htim12;
 
+/* IR distance sensors */
+extern volatile uint16_t irDistance1;
+extern volatile uint16_t irDistance2;
+
 // Ultrasonic
 int Ultrasonic_ResetUntilStable(uint16_t *stable_cm_out, uint32_t timeout_ms);
 
