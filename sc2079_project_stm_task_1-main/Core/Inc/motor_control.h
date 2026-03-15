@@ -12,8 +12,8 @@ extern TIM_HandleTypeDef htim1;
 
 // --- Constants ---
 #define CTRL_PWM_MIN      0
-#define CTRL_PWM_CLAMP    450     // just-overcome-friction duty
-#define CTRL_VMAX_TICKS   9000   // max ticks/s allowed (speed limit)
+#define CTRL_PWM_CLAMP    450    // just-overcome-friction duty
+#define CTRL_VMAX_TICKS   18000   // max ticks/s allowed (speed limit)
 #define CTRL_A_RAMP       4000   // ticks/s^2 (accel limit for smoothness)
 
 // TODO TIM1 PSC=0, ARR=799 (16 MHz / 800 => 20 kHz)

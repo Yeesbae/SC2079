@@ -17,15 +17,15 @@ extern int straight_correction;
 static int32_t prevEncL = 0, prevEncR = 0;
 
 // PID controller instances
-PID pidL = { .kp = 0.4f, .ki = 0.2f, .kd = 0.00f, .i = 0, .prev_err = 0 };
-PID pidR = { .kp = 0.4f, .ki = 0.2f, .kd = 0.00f, .i = 0, .prev_err = 0 };
+PID pidL = { .kp = 0.2f, .ki = 0.05f, .kd = 0.02f, .i = 0, .prev_err = 0 };
+PID pidR = { .kp = 0.2f, .ki = 0.05f, .kd = 0.02f, .i = 0, .prev_err = 0 };
 
 //PID pidL = { .kp = 0.05f, .ki = 0.002f, .kd = 0.001f, .i = 0, .prev_err = 0 };
 //PID pidR = { .kp = 0.05f, .ki = 0.002f, .kd = 0.001f, .i = 0, .prev_err = 0 };
 
 // Position and sync gains
-const float Kpos  = 1.5f;
-const float Ksync = 5.0f;
+const float Kpos  = 2.5f;
+const float Ksync = 2.5f;
 static const float ANG_ERR_MAX       = 30.0f;  // degrees
 static const float TURN_FACTOR_GAIN  = 0.6f;   // how much to slow inner wheel
 static const float TURN_FACTOR_MIN   = 0.4f;   // clamp for inner wheel speed
@@ -95,8 +95,10 @@ void motor_update_straight(int32_t leftTarget, int32_t rightTarget,
     vRefR -= Ksync * diffRem;
 
     if (straight_correction) {
-		vRefL *= 0.7;
-		vRefR *= 0.7;
+		// Proportional slowdown: 0°→no reduction, 5°+→15% max reduction
+		float heading_scale = 1.0f - 0.15f * fminf(fabsf((float)error_angle) / 5.0f, 1.0f);
+		vRefL *= heading_scale;
+		vRefR *= heading_scale;
 	}
 //    else if (vRefL < 0 && vRefL < 0) {
 //		vRefL *= 0.5;
@@ -149,26 +151,16 @@ static inline float turn_factor_from_duty(int duty){
 }
 
 int PID_Angle(double errord) {
-	int error = (int) errord; // TODO why
+	float a = fabsf((float)errord);
 
-	error = abs(error);
-//	temp2 = error;
-	if (error > 300) {
-		return 799;
-	} else if (error > 200) {
-		return 699;
-	} else if (error > 150) {
-		return 599;
-	} else if (error > 100) {
-		return 550;
-	} else if (error > 10) {
-		return 550;
-	} else if (error >= 1) {
-		return 500;
-	} else {
+	if (a < 1.0f) {
 		times_acceptable++;
 		return 0;
 	}
+
+	// Constant speed for consistent radius, higher than original
+	if (a > 10.0f) return 600;    // Flat throughout turn
+	return 500;                    // Final 1-10°: gentle approach
 }
 
 //int PID_Angle(float error_angle_deg)

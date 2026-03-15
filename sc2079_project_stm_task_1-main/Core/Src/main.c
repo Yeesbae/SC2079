@@ -1033,17 +1033,19 @@ void StartDefaultTask(void *argument)
 		pwmVal_servo = SERVOCENTER;
 		osDelay(3000);
 
-		moveCarStraight(100);
-		osDelay(3000);
-
 		moveCarLeft(90);
-		osDelay(3000);
+		osDelay(5000);
+		vTaskSuspend(NULL);
 
-		moveCarStraight(-100);
-		osDelay(3000);
+		moveCarRight(90);
+		osDelay(5000);
+		vTaskSuspend(NULL);
 
-		moveCarRight(270);
-		osDelay(3000);
+		moveCarLeft(-90);
+		osDelay(5000);
+
+		moveCarRight(-90);
+		osDelay(5000);
 
 		vTaskSuspend(NULL);
 	}
