@@ -19,8 +19,8 @@ class IndoorsConfig(Config):
         # ========== Modify as needed: set your model file paths ==========
         Config.__init__(
             self,
-            os.path.join(_MODELS_DIR, 'best.pt'),
-            os.path.join(_MODELS_DIR, 'best.pt'),
+            os.path.join(_MODELS_DIR, 'best_v3.pt'),
+            os.path.join(_MODELS_DIR, 'best_v3.pt'),
         )
         # ================================================
 
@@ -29,8 +29,8 @@ class OutdoorsConfig(Config):
         # ========== Modify as needed: set your model file paths ==========
         Config.__init__(
             self,
-            os.path.join(_MODELS_DIR, 'best.pt'),
-            os.path.join(_MODELS_DIR, 'best.pt'),
+            os.path.join(_MODELS_DIR, 'best_v3.pt'),
+            os.path.join(_MODELS_DIR, 'best_v3.pt'),
         )
         # ================================================
         self.is_outdoors = True
