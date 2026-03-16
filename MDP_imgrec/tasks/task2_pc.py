@@ -2,6 +2,7 @@
 Task 2 PC-side code
 Receives video stream, performs YOLO recognition, sends results back to RPi
 """
+import os
 import socket
 import sys
 import threading
@@ -14,6 +15,10 @@ from camera.stream_listener import StreamListener
 from communication.pc_client import PCClient
 from stitching.stitching import stitch_images, add_to_stitching_dict
 from config.config import Config
+
+# Directory for saving detected images
+IMAGES_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'images', 'task_2')
+os.makedirs(IMAGES_DIR, exist_ok=True)
 
 
 class Task2PC:
@@ -46,6 +51,19 @@ class Task2PC:
         self.RIGHT_ARROW_ID = "38"
         # =====================================================
 
+        # Gate recognition results behind CAPTURE command from RPi
+        self.capture_requested = False
+
+        # Lock protects capture_requested and detections (written by both
+        # the stream thread via on_result and the receive thread via pc_receive)
+        self._lock = threading.Lock()
+
+        # ========== Voting window settings ==========
+        # Collect detections over VOTE_WINDOW frames, then pick majority vote
+        self.VOTE_WINDOW = 15            # Number of frames to collect before deciding
+        self.detections = []              # List of (img_id, conf_level, frame) tuples
+        # ============================================
+
     def start(self):
         """Start all threads"""
         self.pc_client = PCClient(self.host, self.port)
@@ -67,40 +85,75 @@ class Task2PC:
 
     def on_result(self, result, frame):
         """
-        Recognition result callback
-        
-        Args:
-            result: YOLO recognition result
-            frame: Image frame
+        Recognition result callback.
+        Collects detections over a voting window, then picks the majority
+        vote to avoid sending a wrong result from a single bad frame.
         """
-        message_content = None
-
-        if result is not None:
-            conf_level = result.boxes[0].conf.item()
-            img_id = result.names[int(result.boxes[0].cls[0].item())]
-
-            # Only process left/right arrows
-            if img_id not in [self.LEFT_ARROW_ID, self.RIGHT_ARROW_ID]:
-                print(f"Detected invalid image {img_id}, skipping...")
+        with self._lock:
+            if not self.capture_requested:
                 return
-            
-            if self.obstacle_img_id is None:
-                # First arrow detected, send result
-                message_content = f"{conf_level},{img_id}"
-                self.obstacle_img_id = img_id
-            
-            # Add to stitching dict
-            if img_id == self.obstacle_img_id:
-                add_to_stitching_dict(
-                    self.stitching_dict, 
-                    self.obstacle_id, 
-                    conf_level, 
-                    frame
-                )
 
-        if message_content is not None:
-            print("Sending:", message_content)
-            self.pc_client.send(message_content)
+            if result is not None:
+                conf_level = result.boxes[0].conf.item()
+                img_id = result.names[int(result.boxes[0].cls[0].item())]
+
+                # Only collect left/right arrows
+                if img_id in [self.LEFT_ARROW_ID, self.RIGHT_ARROW_ID]:
+                    self.detections.append((img_id, conf_level, frame))
+                    print(f"[Vote] Collected {len(self.detections)}/{self.VOTE_WINDOW}: "
+                          f"{img_id} ({conf_level:.2f})")
+
+            # Once we have enough detections, pick the winner
+            if len(self.detections) >= self.VOTE_WINDOW:
+                self._resolve_vote()
+
+    def _resolve_vote(self):
+        """Pick the majority-voted image ID and send it."""
+        import cv2
+        from collections import Counter
+
+        self.capture_requested = False  # consume the capture request
+
+        # Count votes per image ID
+        votes = Counter(d[0] for d in self.detections)
+        winner_id, vote_count = votes.most_common(1)[0]
+        total = len(self.detections)
+        print(f"[Vote] Result: {winner_id} with {vote_count}/{total} votes "
+              f"(votes: {dict(votes)})")
+
+        # Among detections of the winner, pick the one with highest confidence
+        best_conf = 0.0
+        best_frame = None
+        for img_id, conf, frm in self.detections:
+            if img_id == winner_id and conf > best_conf:
+                best_conf = conf
+                best_frame = frm
+
+        self.obstacle_img_id = winner_id
+
+        # Save annotated frame (with bounding boxes) to images/task_2/
+        save_path = os.path.join(
+            IMAGES_DIR,
+            f"obstacle_{self.obstacle_id}_{winner_id}_{best_conf:.2f}.jpg",
+        )
+        cv2.imwrite(save_path, best_frame)
+        print(f"Saved detected image to {save_path}")
+
+        # Add to stitching dict
+        add_to_stitching_dict(
+            self.stitching_dict,
+            self.obstacle_id,
+            best_conf,
+            best_frame,
+        )
+
+        # Send result to RPi
+        message_content = f"{best_conf},{winner_id}"
+        print("Sending:", message_content)
+        self.pc_client.send(message_content)
+
+        # Clear detections for next capture
+        self.detections = []
 
     def on_disconnect(self):
         """Video stream disconnect callback"""
@@ -120,10 +173,11 @@ class Task2PC:
     def pc_receive(self) -> None:
         """
         Receive commands from RPi
-        
+
         Command formats:
-        1. "SEEN" - Arrow seen, ready for next
-        2. "STITCH" - Request image stitching
+        1. "CAPTURE" - RPi wants a recognition result (triggered by STM32 snap)
+        2. "SEEN"    - Arrow seen, ready for next obstacle
+        3. "STITCH"  - Request image stitching
         """
         print("PC Socket connection started successfully")
         while not self.exit:
@@ -134,21 +188,25 @@ class Task2PC:
                     break
                 print("Message received from RPi:", message_rcv)
 
-                if "SEEN" in message_rcv:
-                    # Command: "SEEN" - Arrow seen, ready for next
+                if "CAPTURE" in message_rcv:
+                    # RPi requests recognition — start collecting detections
+                    print("CAPTURE requested — enabling recognition")
+                    with self._lock:
+                        self.detections = []  # clear any stale detections
+                        self.capture_requested = True
+                        self.obstacle_img_id = None
+
+                elif "SEEN" in message_rcv:
                     self.obstacle_id += 1
                     self.obstacle_img_id = None
                     print(f"Obstacle ID incremented to {self.obstacle_id}")
 
                 elif "STITCH" in message_rcv:
-                    # Command: "STITCH" - Start stitching
-                    # ========== Note: Assumes stitching obstacle_id 1 and 2 ==========
                     stitch_images(
-                        [1, 2], 
-                        self.stitching_dict, 
-                        filename=self.filename
+                        [1, 2],
+                        self.stitching_dict,
+                        filename=self.filename,
                     )
-                    # =====================================================
             except OSError as e:
                 print("Error in receiving data:", e)
                 break

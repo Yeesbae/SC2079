@@ -2669,6 +2669,44 @@ def run_no_bt_full():
 
 
 # =============================================================================
+# Task 2 Standalone (Mode 10) — STM32 + ImgRec PC only, no BT/Algo
+# =============================================================================
+def run_task2_standalone():
+    """
+    Mode 10: Task 2 standalone.
+
+    Flow:
+    1. STM32 sends snap command → RPi
+    2. RPi sends CAPTURE to Image Rec PC (via TCP)
+    3. Image Rec PC recognises arrow, sends result back
+    4. RPi sends turn command (left/right) to STM32
+
+    No Bluetooth, no Algorithm PC.
+    """
+    from tasks.task2_rpi import Task2RPI
+    from config.config import get_config
+
+    print("\n" + "=" * 60)
+    print("TASK 2 STANDALONE (STM32 + ImgRec PC)")
+    print("No Bluetooth, no Algorithm PC")
+    print("=" * 60)
+
+    config = get_config()
+
+    print(f"\nYou are {'out' if config.is_outdoors else 'in'}doors.")
+    task2 = Task2RPI(config)
+    task2.initialize()
+
+    try:
+        while True:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        print("\nStopping...")
+        task2.stop()
+        print("[Mode 10] Task 2 standalone ended")
+
+
+# =============================================================================
 # Main Process Manager
 # =============================================================================
 class MultiProcessManager:
@@ -2864,12 +2902,13 @@ def select_run_mode() -> str:
     print("  7. STM32 Movement Test (BT + Algo + STM32, no camera)")
     print("  8. No-Bluetooth Test (Algo + ImgRec, simulated movement)")
     print("  9. No-Bluetooth Full (Algo + ImgRec + STM32, robot MOVES)")
+    print(" 10. Task 2 Standalone (STM32 + ImgRec PC only, no BT/Algo)")
     
     while True:
-        mode = input("\nSelect mode (1-9) >> ").strip()
-        if mode in ['1', '2', '3', '4', '5', '6', '7', '8', '9']:
+        mode = input("\nSelect mode (1-10) >> ").strip()
+        if mode in [str(i) for i in range(1, 11)]:
             return mode
-        print("Please enter 1-9")
+        print("Please enter 1-10")
 
 
 def select_task() -> int:
@@ -2947,3 +2986,7 @@ if __name__ == "__main__":
     elif run_mode == '9':
         # No-Bluetooth Full (Algo + ImgRec + STM32, robot MOVES)
         run_no_bt_full()
+    
+    elif run_mode == '10':
+        # Task 2 Standalone (STM32 + ImgRec PC, no BT/Algo)
+        run_task2_standalone()
