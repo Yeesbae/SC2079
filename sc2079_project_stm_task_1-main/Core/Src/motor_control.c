@@ -144,6 +144,68 @@ void motor_update_straight(int32_t leftTarget, int32_t rightTarget,
 //    }
 }
 
+// --- Cruise mode state (module-level so motor_cruise_reset can access) ---
+static int32_t cruise_base_L = 0, cruise_base_R = 0;
+static int cruise_active = 0;
+
+void motor_update_cruise(int32_t leftEncoderVal, int32_t rightEncoderVal, float dt)
+{
+    // Same as motor_update_straight but with constant target velocity
+    // instead of position-derived velocity. Uses the same velocity PID
+    // so each wheel adapts its PWM to match the target speed.
+
+    // --- Encoder deltas ---
+    int32_t dEncL = leftEncoderVal  - prevEncL;
+    int32_t dEncR = rightEncoderVal - prevEncR;
+    prevEncL = leftEncoderVal;
+    prevEncR = rightEncoderVal;
+
+    // --- Measured wheel speeds (ticks/sec) ---
+    float vL = dEncL / dt;
+    float vR = dEncR / dt;
+
+    // --- Constant target velocity (CRUISE_PWM mapped to ticks/sec) ---
+    float vRef = (float)CRUISE_PWM * ((float)CTRL_VMAX_TICKS / (float)PWM_MAX);
+    float vRefL = vRef;
+    float vRefR = vRef;
+
+    // --- Sync correction: keep both wheels at same travel distance ---
+    if (!cruise_active) {
+        cruise_base_L = leftEncoderVal;
+        cruise_base_R = rightEncoderVal;
+        // Reset prevEnc so first delta is zero (no velocity spike)
+        prevEncL = leftEncoderVal;
+        prevEncR = rightEncoderVal;
+        cruise_active = 1;
+    }
+    float drift = (float)(leftEncoderVal - cruise_base_L)
+                - (float)(rightEncoderVal - cruise_base_R);
+    vRefL -= Ksync * drift;
+    vRefR += Ksync * drift;
+
+    // --- Heading correction (same as motor_update_straight) ---
+    if (straight_correction) {
+        float heading_scale = 1.0f - 0.15f * fminf(fabsf((float)error_angle) / 5.0f, 1.0f);
+        vRefL *= heading_scale;
+        vRefR *= heading_scale;
+    }
+
+    // --- Inner loop: velocity PID -> PWM ---
+    int pwmVal_L = vel_pid(&pidL, vRefL, vL, dt);
+    int pwmVal_R = vel_pid(&pidR, vRefR, vR, dt);
+
+    motor_set_pwm_left(pwmVal_L);
+    motor_set_pwm_right(pwmVal_R);
+}
+
+void motor_cruise_reset(void)
+{
+    cruise_active = 0;
+    // Reset PID state so cruise starts clean
+    pidL.i = 0; pidL.prev_err = 0;
+    pidR.i = 0; pidR.prev_err = 0;
+}
+
 static inline float turn_factor_from_duty(int duty){
     float duty_ratio = (float)(duty - DUTY_MIN) / (float)(DUTY_MAX - DUTY_MIN); // 0..1
     float tf = 1.0f - TURN_FACTOR_GAIN * duty_ratio;

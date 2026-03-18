@@ -47,7 +47,7 @@
 //#define LEFT_LIMIT  56
 //#define RIGHT_LIMIT 96
 
-#define SERVOCENTER 77 // SERVO_TICKS_FROM_MS(1.50)  // 75
+#define SERVOCENTER 74 // SERVO_TICKS_FROM_MS(1.50)  // 75
 #define SERVORIGHT  130 // SERVO_TICKS_FROM_MS(2.00)  // 100
 #define SERVOLEFT   45 // SERVO_TICKS_FROM_MS(1.00)  // 50
 #define LEFT_LIMIT  (SERVOLEFT + 10)    // 55
@@ -80,7 +80,7 @@ UART_HandleTypeDef huart3;
 osThreadId_t defaultTaskHandle;
 const osThreadAttr_t defaultTask_attributes = {
   .name = "defaultTask",
-  .stack_size = 128 * 4,
+  .stack_size = 512 * 4,
   .priority = (osPriority_t) osPriorityNormal,
 };
 /* Definitions for communicateTask */
@@ -123,7 +123,7 @@ osThreadId_t ultrasonicTaskHandle;
 const osThreadAttr_t ultrasonicTask_attributes = {
   .name = "ultrasonicTask",
   .stack_size = 512 * 4,
-  .priority = (osPriority_t) osPriorityNormal,
+  .priority = (osPriority_t) osPriorityRealtime,
 };
 /* USER CODE BEGIN PV */
 
@@ -173,6 +173,16 @@ volatile uint16_t irDistance2 = 0;  // IR sensor 2 distance in cm
 volatile uint32_t irRaw1 = 0;      // raw ADC value for debug
 volatile uint32_t irRaw2 = 0;
 
+/* -------- Task 2 inter-task communication -------- */
+osEventFlagsId_t task2EventFlags;
+
+#define EVT_RPI_RESPONSE    (1U << 0)  // communicateTask -> defaultTask: direction received
+#define EVT_START_CMD       (1U << 1)  // communicateTask -> defaultTask: start received
+#define EVT_BULL_CONFIRMED  (1U << 2)  // communicateTask -> defaultTask: bull confirmed
+
+volatile uint8_t rpiDirection = 0;     // 'L' or 'R' from RPi
+volatile int cruise_mode = 0;         // 1 = constant-speed forward, 0 = normal PID
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -206,6 +216,17 @@ void moveCarLeft(double angle);
 /* PID (kept from your reference) */
 int finishCheck(void);
 
+/* Task 2: Sensor-based movement */
+uint16_t moveForwardUntilUltrasonic(uint16_t target_cm);
+void moveForwardUntilIRClose(uint8_t sensor_id, uint16_t threshold_cm);
+void moveForwardUntilIRFar(uint8_t sensor_id, uint16_t delta_cm);
+void moveForwardUntilIRPassObstacle(uint8_t sensor_id, uint16_t near_cm, uint16_t far_cm);
+
+/* Task 2: RPi communication helpers */
+uint8_t requestImageDetection(void);
+void requestBullConfirmation(void);
+void sendTaskComplete(void);
+
 /* Ultrasonic helpers */
 void delay(uint16_t time);
 void HCSR04_Read(void);
@@ -236,7 +257,7 @@ static void fatal_blink_and_park(void){
 static uint32_t ADC_Read(ADC_HandleTypeDef *hadc)
 {
     HAL_ADC_Start(hadc);
-    if (HAL_ADC_PollForConversion(hadc, HAL_MAX_DELAY) != HAL_OK) {
+    if (HAL_ADC_PollForConversion(hadc, 5) != HAL_OK) {  // 5ms timeout, not HAL_MAX_DELAY
         HAL_ADC_Stop(hadc);
         return 0;
     }
@@ -294,7 +315,7 @@ int main(void)
   MX_TIM3_Init();
   MX_TIM12_Init();
   MX_ADC1_Init();
-  //MX_ADC2_Init();  // disabled for testing — IR2 not connected
+  MX_ADC2_Init();
   /* USER CODE BEGIN 2 */
 
   OLED_Init();
@@ -379,12 +400,19 @@ int main(void)
   /* USER CODE BEGIN RTOS_QUEUES */
   /* USER CODE END RTOS_QUEUES */
 
+  /* USER CODE BEGIN RTOS_EVENTS */
+  task2EventFlags = osEventFlagsNew(NULL);
+  if (task2EventFlags == NULL) {
+    Error_Handler();
+  }
+  /* USER CODE END RTOS_EVENTS */
+
   /* Create the thread(s) */
   /* creation of defaultTask */
-  defaultTaskHandle = osThreadNew(StartDefaultTask, NULL, &defaultTask_attributes);
+  //defaultTaskHandle = osThreadNew(StartDefaultTask, NULL, &defaultTask_attributes);
 
   /* creation of communicateTask */
-  communicateTaskHandle = osThreadNew(startCommunicateTask, NULL, &communicateTask_attributes);
+  //communicateTaskHandle = osThreadNew(startCommunicateTask, NULL, &communicateTask_attributes);
 
   /* creation of motorTask */
   motorTaskHandle = osThreadNew(startMotorTask, NULL, &motorTask_attributes);
@@ -1035,6 +1063,154 @@ int finishCheck() {
 	return 1;
 }
 
+/* -------- Task 2: Sensor-based movement functions -------- */
+
+uint16_t moveForwardUntilUltrasonic(uint16_t target_cm) {
+	// Reset gyro heading so servo correction starts clean
+	target_cm += 20;
+	total_angle = 0.0;
+	target_angle = 0.0;
+	pwmVal_servo = SERVOCENTER;
+	straight_correction = 0;
+	motor_cruise_reset();  // reset PID + prevEnc for clean start
+	cruise_mode = 1;
+	e_brake = 0;
+
+	while (uDistance > target_cm || uDistance < 3) {
+		osDelay(10);
+	}
+
+	// Stop sequence: same style as finishCheck()
+	pwmVal_servo = SERVOCENTER;
+	straight_correction = 0;
+	cruise_mode = 0;
+	e_brake = 1;
+	pwmVal_L = pwmVal_R = 0;
+	motor_set_pwm_left(0);
+	motor_set_pwm_right(0);
+	osDelay(300);
+	return uDistance;
+}
+
+void moveForwardUntilIRClose(uint8_t sensor_id, uint16_t threshold_cm) {
+	total_angle = 0.0;
+	target_angle = 0.0;
+	pwmVal_servo = SERVOCENTER;
+	straight_correction = 0;
+	motor_cruise_reset();
+	cruise_mode = 1;
+	e_brake = 0;
+
+	volatile uint16_t *ir_ptr = (sensor_id == 1) ? &irDistance1 : &irDistance2;
+	osDelay(200);
+
+	int confirm = 0;
+	while (confirm < 2) {
+		osDelay(10);
+		if (*ir_ptr < threshold_cm) confirm++; else confirm = 0;
+	}
+
+	pwmVal_servo = SERVOCENTER;
+	straight_correction = 0;
+	cruise_mode = 0;
+	e_brake = 1;
+	pwmVal_L = pwmVal_R = 0;
+	motor_set_pwm_left(0);
+	motor_set_pwm_right(0);
+	osDelay(300);
+}
+
+void moveForwardUntilIRFar(uint8_t sensor_id, uint16_t delta_cm) {
+	// Stop when IR shows a large INCREASE between consecutive readings,
+	// meaning the obstacle has ended. The smaller reading must be < 35cm
+	// to ensure we're actually beside an obstacle before triggering.
+	total_angle = 0.0;
+	target_angle = 0.0;
+	pwmVal_servo = SERVOCENTER;
+	straight_correction = 0;
+	motor_cruise_reset();
+	cruise_mode = 1;
+	e_brake = 0;
+
+	volatile uint16_t *ir_ptr = (sensor_id == 1) ? &irDistance1 : &irDistance2;
+	osDelay(200);
+
+	uint16_t prev_reading = *ir_ptr;
+	for (;;) {
+		osDelay(10);
+		uint16_t curr_reading = *ir_ptr;
+		if (prev_reading < 35 && (curr_reading - prev_reading) >= delta_cm) {
+			break;
+		}
+		prev_reading = curr_reading;
+	}
+
+	pwmVal_servo = SERVOCENTER;
+	straight_correction = 0;
+	cruise_mode = 0;
+	e_brake = 1;
+	pwmVal_L = pwmVal_R = 0;
+	motor_set_pwm_left(0);
+	motor_set_pwm_right(0);
+	osDelay(300);
+}
+
+void moveForwardUntilIRPassObstacle(uint8_t sensor_id, uint16_t near_cm, uint16_t far_cm) {
+	total_angle = 0.0;
+	target_angle = 0.0;
+	pwmVal_servo = SERVOCENTER;
+	straight_correction = 0;
+	motor_cruise_reset();
+	cruise_mode = 1;
+	e_brake = 0;
+
+	volatile uint16_t *ir_ptr = (sensor_id == 1) ? &irDistance1 : &irDistance2;
+	osDelay(200);
+
+	// Phase A: Drive until IR detects obstacle beside us (reading < near_cm)
+	int confirm = 0;
+	while (confirm < 3) {
+		osDelay(50);
+		if (*ir_ptr < near_cm) confirm++; else confirm = 0;
+	}
+
+	// Phase B: Continue until IR shows open space (reading > far_cm = passed obstacle)
+	confirm = 0;
+	while (confirm < 3) {
+		osDelay(50);
+		if (*ir_ptr > far_cm) confirm++; else confirm = 0;
+	}
+
+	pwmVal_servo = SERVOCENTER;
+	straight_correction = 0;
+	cruise_mode = 0;
+	e_brake = 1;
+	pwmVal_L = pwmVal_R = 0;
+	motor_set_pwm_left(0);
+	motor_set_pwm_right(0);
+	osDelay(300);
+}
+
+/* -------- Task 2: RPi communication helpers -------- */
+
+uint8_t requestImageDetection(void) {
+	uint8_t msg = 'I';
+	HAL_UART_Transmit(&huart3, &msg, 1, 0xFFFF);
+	osEventFlagsWait(task2EventFlags, EVT_RPI_RESPONSE, osFlagsWaitAll, osWaitForever);
+	return rpiDirection;
+}
+
+void requestBullConfirmation(void) {
+	uint8_t msg = 'B';
+	HAL_UART_Transmit(&huart3, &msg, 1, 0xFFFF);
+	osEventFlagsWait(task2EventFlags, EVT_BULL_CONFIRMED, osFlagsWaitAll, osWaitForever);
+}
+
+void sendTaskComplete(void) {
+	uint8_t msg = 'F';
+	HAL_UART_Transmit(&huart3, &msg, 1, 0xFFFF);
+}
+
 void testSpeed(char* buffer, int speed, int delay) {
 	sprintf(buffer, "PWM: %u", speed);
 	TestOLED(buffer);
@@ -1168,29 +1344,227 @@ static float calibrate_bias_z(IMU_Data* imu, int n, int delay_ms) {
 void StartDefaultTask(void *argument)
 {
   /* USER CODE BEGIN 5 */
-	/* Infinite loop */
-	char str[10];
+	pwmVal_servo = SERVOCENTER;
 
-	for (;;){
-		pwmVal_servo = SERVOCENTER;
-		osDelay(3000);
+	// ==========================================================
+	// UNCOMMENT ONE TEST AT A TIME, THEN FLASH AND RUN
+	// ==========================================================
 
-		moveCarLeft(90);
-		osDelay(5000);
-		vTaskSuspend(NULL);
+	// --- TEST 1: Cruise mode basic ---
+	// Drive forward at constant speed for 1 seconds, then stop.
+	// Verify: car goes straight (encoder sync working).
+	//osDelay(3000);  // wait 3s before starting
+	//cruise_mode = 1;
+	//e_brake = 0;
+	//pwmVal_servo = SERVOCENTER;
+	//straight_correction = 1;
+	//osDelay(1200);  // drive for 1 seconds
+	//e_brake = 1;
+	//cruise_mode = 0;
+	//vTaskSuspend(NULL);
 
-		moveCarRight(90);
-		osDelay(5000);
-		vTaskSuspend(NULL);
+	// --- TEST 2: moveForwardUntilUltrasonic ---
+	// Place an obstacle ~50cm ahead. Car should drive forward
+	// and stop when ultrasonic reads <= 25cm.
+	// Verify: car stops ~40cm from obstacle. Check OLED for US reading.
+	//osDelay(3000);
+	//uint16_t dist = moveForwardUntilUltrasonic(30);
+	//vTaskSuspend(NULL);
 
-		moveCarLeft(-90);
-		osDelay(5000);
+	// --- TEST 3: moveForwardUntilIRClose (IR1 = right sensor) ---
+	// Place an obstacle to the RIGHT of the car's path.
+	// Car drives forward, stops when right IR < 20cm.
+	//osDelay(1000);
+	//moveForwardUntilIRClose(1, 40);
+	//vTaskSuspend(NULL);
 
-		moveCarRight(-90);
-		osDelay(5000);
+	// --- TEST 4: moveForwardUntilIRClose (IR2 = left sensor) ---
+	// Place an obstacle to the LEFT of the car's path.
+	// Car drives forward, stops when left IR < 20cm.
+//	osDelay(1000);
+//	moveForwardUntilIRClose(2, 20);
+//	vTaskSuspend(NULL);
 
-		vTaskSuspend(NULL);
+	// --- TEST 5: moveForwardUntilIRPassObstacle (IR2 = left) ---
+	// Place an obstacle to the LEFT ~10cm away. Car drives forward.
+	// IR goes: HIGH(open) -> LOW(beside obstacle) -> HIGH(passed it) -> stop.
+//	osDelay(1000);
+//	moveForwardUntilIRPassObstacle(2, 20, 50);
+//	vTaskSuspend(NULL);
+
+	// --- TEST 6: moveForwardUntilIRPassObstacle (IR1 = right) ---
+	// Place an obstacle to the RIGHT. Same two-phase detection.
+	osDelay(3000);
+	moveForwardUntilIRPassObstacle(1, 25, 60);
+	vTaskSuspend(NULL);
+
+	// --- TEST 7: RPi handshake - requestImageDetection ---
+	// Sends "IMG\r\n" to RPi, waits for "LEFT\0" or "RGHT\0".
+	// Sends "IMG\r\n", waits for "LEFT\0" or "RGHT\0", then turns 90 that direction.
+	//osDelay(1000);
+	//uint8_t dir = requestImageDetection();
+	//if (dir == 'L') moveCarLeft(90);
+	//else if (dir == 'R') moveCarRight(90);
+	//vTaskSuspend(NULL);
+
+	// --- TEST 8: RPi handshake - requestBullConfirmation ---
+	// Sends "BULL\n" to RPi, waits for "CONF\0".
+//	osDelay(3000);
+//	requestBullConfirmation();
+//	// If we get here, CONF was received
+//	vTaskSuspend(NULL);
+
+	// --- TEST 9: Wait for START then drive + stop by ultrasonic ---
+	// Full Phase 1 test. Send "STRT\0" from RPi to begin.
+	// Car drives forward, stops at obstacle, sends IMG, waits for direction.
+//	osEventFlagsWait(task2EventFlags, EVT_START_CMD, osFlagsWaitAll, osWaitForever);
+//	osDelay(500);
+//	uint16_t rec = moveForwardUntilUltrasonic(25);
+//	osDelay(500);
+//	uint8_t d = requestImageDetection();
+//	vTaskSuspend(NULL);
+
+	// --- TEST 10: Lane change right (obstacle 1 bypass) ---
+	// Hardcoded right lane-change: R90, fwd 20, L90, fwd 40, L90, fwd 20, R90.
+	// Verify: car does a clean right-side bypass and returns to center.
+//	osDelay(3000);
+//	total_angle = 0.0; target_angle = 0.0;
+//	moveCarRight(90);    osDelay(300);
+//	moveCarStraight(20); osDelay(300);
+//	moveCarLeft(90);     osDelay(300);
+//	moveCarStraight(40); osDelay(300);
+//	moveCarLeft(90);     osDelay(300);
+//	moveCarStraight(20); osDelay(300);
+//	moveCarRight(90);    osDelay(300);
+//	vTaskSuspend(NULL);
+
+	// --- TEST 11: Lane change left (mirror of test 10) ---
+//	osDelay(3000);
+//	total_angle = 0.0; target_angle = 0.0;
+//	moveCarLeft(90);     osDelay(300);
+//	moveCarStraight(20); osDelay(300);
+//	moveCarRight(90);    osDelay(300);
+//	moveCarStraight(40); osDelay(300);
+//	moveCarRight(90);    osDelay(300);
+//	moveCarStraight(20); osDelay(300);
+//	moveCarLeft(90);     osDelay(300);
+//	vTaskSuspend(NULL);
+
+	// --- TEST 12: Full Task 2 routine ---
+	// Uncomment this block to run the complete 4-phase autonomous task.
+	{
+	const uint16_t US_STOP_DIST_CM   = 25;
+	const double   LANE_OFFSET_CM    = 20.0;
+	const double   OBS1_SAFETY_CM    = 20.0;
+	const double   OBS2_SAFETY_CM    = 15.0;
+	const double   RETURN_EXTRA_CM   = 45.0;
+	const uint16_t IR_FAR_THRESH_CM  = 50;
+	const uint16_t IR_NEAR_THRESH_CM = 20;
+	const uint16_t PARK_STOP_CM      = 25;
+
+	uint16_t recorded_dist_1 = 0;
+	uint16_t recorded_dist_2 = 0;
+	uint8_t  direction_1 = 0;
+	uint8_t  direction_2 = 0;
+
+	osEventFlagsWait(task2EventFlags, EVT_START_CMD, osFlagsWaitAll, osWaitForever);
+	osDelay(500);
+  //uncomment to run full tasks
+  vTaskSuspend(NULL);
+	// PHASE 1
+	recorded_dist_1 = moveForwardUntilUltrasonic(US_STOP_DIST_CM);
+	osDelay(500);
+	direction_1 = requestImageDetection();
+	osDelay(500);
+
+	// PHASE 2
+	total_angle = 0.0;
+	target_angle = 0.0;
+
+	if (direction_1 == 'R') {
+		moveCarRight(90);    osDelay(300);
+		moveCarStraight(LANE_OFFSET_CM);  osDelay(300);
+		moveCarLeft(90);     osDelay(300);
+		moveCarStraight((double)recorded_dist_1 + OBS1_SAFETY_CM);  osDelay(300);
+		moveCarLeft(90);     osDelay(300);
+		moveCarStraight(LANE_OFFSET_CM);  osDelay(300);
+		moveCarRight(90);    osDelay(300);
+	} else {
+		moveCarLeft(90);     osDelay(300);
+		moveCarStraight(LANE_OFFSET_CM);  osDelay(300);
+		moveCarRight(90);    osDelay(300);
+		moveCarStraight((double)recorded_dist_1 + OBS1_SAFETY_CM);  osDelay(300);
+		moveCarRight(90);    osDelay(300);
+		moveCarStraight(LANE_OFFSET_CM);  osDelay(300);
+		moveCarLeft(90);     osDelay(300);
 	}
+
+	recorded_dist_2 = moveForwardUntilUltrasonic(US_STOP_DIST_CM);
+	osDelay(500);
+	direction_2 = requestImageDetection();
+	osDelay(500);
+
+	// PHASE 3
+	total_angle = 0.0;
+	target_angle = 0.0;
+
+	if (direction_2 == 'R') {
+		moveCarRight(90);    osDelay(300);
+		moveCarStraight(LANE_OFFSET_CM);  osDelay(300);
+		moveCarLeft(90);     osDelay(300);
+		moveForwardUntilIRPassObstacle(2, IR_NEAR_THRESH_CM, IR_FAR_THRESH_CM);
+		osDelay(300);
+		moveCarStraight(OBS2_SAFETY_CM);  osDelay(300);
+		moveCarLeft(90);     osDelay(300);
+		moveCarStraight(LANE_OFFSET_CM);  osDelay(300);
+		moveCarRight(90);    osDelay(300);
+	} else {
+		moveCarLeft(90);     osDelay(300);
+		moveCarStraight(LANE_OFFSET_CM);  osDelay(300);
+		moveCarRight(90);    osDelay(300);
+		moveForwardUntilIRPassObstacle(1, IR_NEAR_THRESH_CM, IR_FAR_THRESH_CM);
+		osDelay(300);
+		moveCarStraight(OBS2_SAFETY_CM);  osDelay(300);
+		moveCarRight(90);    osDelay(300);
+		moveCarStraight(LANE_OFFSET_CM);  osDelay(300);
+		moveCarLeft(90);     osDelay(300);
+	}
+
+	// PHASE 4
+	total_angle = 0.0;
+	target_angle = 0.0;
+
+	if (direction_2 == 'R') {
+		moveCarLeft(90);     osDelay(300);
+		moveForwardUntilIRPassObstacle(2, IR_NEAR_THRESH_CM, IR_FAR_THRESH_CM);
+		osDelay(300);
+		moveCarLeft(90);     osDelay(300);
+		moveCarStraight((double)recorded_dist_1 + (double)recorded_dist_2 + RETURN_EXTRA_CM);
+		osDelay(300);
+		moveCarLeft(90);     osDelay(300);
+		moveForwardUntilIRClose(2, IR_NEAR_THRESH_CM);
+		osDelay(300);
+		moveCarRight(90);    osDelay(300);
+	} else {
+		moveCarRight(90);    osDelay(300);
+		moveForwardUntilIRPassObstacle(1, IR_NEAR_THRESH_CM, IR_FAR_THRESH_CM);
+		osDelay(300);
+		moveCarRight(90);    osDelay(300);
+		moveCarStraight((double)recorded_dist_1 + (double)recorded_dist_2 + RETURN_EXTRA_CM);
+		osDelay(300);
+		moveCarRight(90);    osDelay(300);
+		moveForwardUntilIRClose(1, IR_NEAR_THRESH_CM);
+		osDelay(300);
+		moveCarLeft(90);     osDelay(300);
+	}
+
+	requestBullConfirmation();
+	osDelay(500);
+	moveForwardUntilUltrasonic(PARK_STOP_CM);
+	sendTaskComplete();
+	}
+
+	vTaskSuspend(NULL);
 
   /* USER CODE END 5 */
 }
@@ -1207,96 +1581,83 @@ void startCommunicateTask(void *argument)
   /* USER CODE BEGIN startCommunicateTask */
 	char ack = 'A';
 
-		rxBuffer_working[0] = 'E'; // will store key
-		rxBuffer_working[1] = 'M'; // stores direction
-		rxBuffer_working[2] = 'P'; // 2, 3, 4 will store the magnitude, angle
-		rxBuffer_working[3] = 'T';
-		rxBuffer_working[4] = 'Y';
+	rxBuffer_working[0] = 'E';
+	rxBuffer_working[1] = 'M';
+	rxBuffer_working[2] = 'P';
+	rxBuffer_working[3] = 'T';
+	rxBuffer_working[4] = 'Y';
+
   /* Infinite loop */
   for(;;)
   {
-	  cnt_communicate++;  // Task counter
+	  cnt_communicate++;
 
-	  // Wait for UART data with timeout (blocking call)
+	  // --- Wait for UART RX data (100ms timeout) ---
+	  // RPi sends 5 bytes, first byte determines command:
+	  //   'T' = start Task 2
+	  //   'W' = direction left  (rpi detected left arrow)
+	  //   'E' = direction right (rpi detected right arrow)
+	  //   'C' = bull's-eye confirmed
+	  //   'G' = GYROR reset
+	  //   'S','R','L','U' + 'F'/'B' + NNN = Task 1 commands (kept for testing)
 	  if (osSemaphoreAcquire(uartRxSemaphoreHandle, 100) == osOK) {
-		  // New data available - copy atomically from ISR buffer
 		  taskENTER_CRITICAL();
 		  memcpy(rxBuffer_working, aRxBuffer, 5);
 		  taskEXIT_CRITICAL();
+
+		  magnitude = 0;
+
+		  switch (rxBuffer_working[0]) {
+		  // --- Task 2 commands (first byte only) ---
+		  case 'T':
+			  osEventFlagsSet(task2EventFlags, EVT_START_CMD);
+			  break;
+		  case 'W':
+			  rpiDirection = 'L';
+			  osEventFlagsSet(task2EventFlags, EVT_RPI_RESPONSE);
+			  break;
+		  case 'E':
+			  rpiDirection = 'R';
+			  osEventFlagsSet(task2EventFlags, EVT_RPI_RESPONSE);
+			  break;
+		  case 'C':
+			  osEventFlagsSet(task2EventFlags, EVT_BULL_CONFIRMED);
+			  break;
+		  case 'G':
+			  if (rxBuffer_working[1] == 'Y') NVIC_SystemReset();
+			  break;
+
+		  // --- Task 1 movement commands (same as before) ---
+		  default: {
+			  int isValidCmd = (rxBuffer_working[0] == 'S' || rxBuffer_working[0] == 'R'
+			      || rxBuffer_working[0] == 'L' || rxBuffer_working[0] == 'U')
+			      && (rxBuffer_working[1] == 'F' || rxBuffer_working[1] == 'B')
+			      && (rxBuffer_working[2] >= '0' && rxBuffer_working[2] <= '9')
+			      && (rxBuffer_working[3] >= '0' && rxBuffer_working[3] <= '9')
+			      && (rxBuffer_working[4] >= '0' && rxBuffer_working[4] <= '9');
+
+			  if (isValidCmd) {
+				  magnitude = ((int)(rxBuffer_working[2]) - 48) * 100
+				      + ((int)(rxBuffer_working[3]) - 48) * 10
+				      + ((int)(rxBuffer_working[4]) - 48);
+				  if (rxBuffer_working[1] == 'B') magnitude *= -1;
+
+				  switch (rxBuffer_working[0]) {
+				  case 'S': moveCarStraight(magnitude); flagDone = 1; break;
+				  case 'R': moveCarRight(magnitude); flagDone = 1; break;
+				  case 'L': moveCarLeft(magnitude); flagDone = 1; break;
+				  case 'U': moveCarStraight(uDistance + 8 - magnitude); flagDone = 1; break;
+				  }
+			  }
+			  break;
+		  }
+		  }
+
+		  if (flagDone == 1) {
+			  HAL_UART_Transmit(&huart3, (uint8_t*)&ack, 1, 0xFFFF);
+			  flagDone = 0;
+		  }
 	  }
-
-	  magnitude = 0;
-	  // Check for GYROR reset command OR valid movement command
-	  int isGyroReset = (rxBuffer_working[0] == 'G' && rxBuffer_working[1] == 'Y' 
-	                     && rxBuffer_working[2] == 'R' && rxBuffer_working[3] == 'O' 
-	                     && rxBuffer_working[4] == 'R');
-	  
-	  int isValidCmd = (rxBuffer_working[0] == 'S' || rxBuffer_working[0] == 'R'
-	                    || rxBuffer_working[0] == 'L' || rxBuffer_working[0] == 'U')
-	                   && (rxBuffer_working[1] == 'F' || rxBuffer_working[1] == 'B')
-	                   && (rxBuffer_working[2] >= '0' && rxBuffer_working[2] <= '9')
-	                   && (rxBuffer_working[3] >= '0' && rxBuffer_working[3] <= '9')
-	                   && (rxBuffer_working[4] >= '0' && rxBuffer_working[4] <= '9');
-	  
-	  if (isGyroReset || isValidCmd) {
-
-	  			magnitude = ((int) (rxBuffer_working[2]) - 48) * 100
-	  					+ ((int) (rxBuffer_working[3]) - 48) * 10
-	  					+ ((int) (rxBuffer_working[4]) - 48);
-
-	  			if (rxBuffer_working[1] == 'B') {
-	  				magnitude *= -1;
-	  			}
-
-	  			switch (rxBuffer_working[0]) {
-	  			case 'S':
-	  				moveCarStraight(magnitude);
-	  				flagDone = 1;
-	  				rxBuffer_working[0] = 'D';
-	  				rxBuffer_working[1] = 'O';
-	  				rxBuffer_working[2] = 'N';
-	  				rxBuffer_working[3] = 'E';
-	  				rxBuffer_working[4] = '!';
-	  				break;
-	  			case 'R':
-	  				moveCarRight(magnitude);
-	  				flagDone = 1;
-	  				rxBuffer_working[0] = 'D';
-	  				rxBuffer_working[1] = 'O';
-	  				rxBuffer_working[2] = 'N';
-	  				rxBuffer_working[3] = 'E';
-	  				rxBuffer_working[4] = '!';
-	  				break;
-	  			case 'L':
-	  				moveCarLeft(magnitude);
-	  				flagDone = 1;
-	  				rxBuffer_working[0] = 'D';
-	  				rxBuffer_working[1] = 'O';
-	  				rxBuffer_working[2] = 'N';
-	  				rxBuffer_working[3] = 'E';
-	  				rxBuffer_working[4] = '!';
-	  				break;
-	  			case 'U':
-	  				moveCarStraight(uDistance + 8-magnitude);
-	  				flagDone = 1;
-	  				rxBuffer_working[0] = 'D';
-	  				rxBuffer_working[1] = 'O';
-	  				rxBuffer_working[2] = 'N';
-	  				rxBuffer_working[3] = 'E';
-	  				rxBuffer_working[4] = '!';
-	  				break;
-	  			case 'G':
-	  				NVIC_SystemReset();
-	  				break;
-	  			}
-	  		}
-
-	  		if (flagDone == 1) {
-	  			HAL_UART_Transmit(&huart3, (uint8_t*) &ack, 1, 0xFFFF);
-	  			flagDone = 0;
-	  		}
-
-	  		// Task delay removed - blocking on semaphore provides timing
   }
   /* USER CODE END startCommunicateTask */
 }
@@ -1343,7 +1704,7 @@ void startMotorTask(void *argument)
 	  if (e_brake) {
 		  motor_set_pwm_left(0);
 		  motor_set_pwm_right(0);
-		  osDelay(1000);
+		  osDelay(50);
 		  continue;
 	  }
 
@@ -1383,11 +1744,13 @@ void startMotorTask(void *argument)
 		// center
 		else {
 			temp2 = 2;
-//			temp2 = rightTarget - rightEncoderVal;
-//			temp1 = leftTarget - leftEncoderVal;
-//			temp2 = rightTarget - rightEncoderVal;
-			motor_update_straight(leftTarget, rightTarget,
-			                              leftEncoderVal, rightEncoderVal, dt);
+			if (cruise_mode) {
+				motor_update_cruise(leftEncoderVal, rightEncoderVal, dt);
+			} else {
+				motor_cruise_reset();
+				motor_update_straight(leftTarget, rightTarget,
+				                              leftEncoderVal, rightEncoderVal, dt);
+			}
 		}
 
 		osDelay(10);
@@ -1528,7 +1891,12 @@ void startGyroTask(void *argument)
 
 				const int step = 5;
 
-				int dir_sign = ((leftTarget - leftEncoderVal) > 0) ? +1 : -1;
+				int dir_sign;
+				if (cruise_mode) {
+					dir_sign = +1;  // cruise always goes forward
+				} else {
+					dir_sign = ((leftTarget - leftEncoderVal) > 0) ? +1 : -1;
+				}
 
 				int err_sign = 0;
 				if (error_angle > 0) err_sign = -1;
@@ -1581,8 +1949,7 @@ void startOLEDTask(void *argument)
     snprintf(line4, sizeof(line4), "RX:%lu ERR:%lu", uart_rx_count, uart_error_count);
     OLED_ShowString(0, 36, (uint8_t*)line4);
 
-    snprintf(line5, sizeof(line5), "BUF:%c%c%c%c%c",
-            aRxBuffer[0], aRxBuffer[1], aRxBuffer[2], aRxBuffer[3], aRxBuffer[4]);
+    snprintf(line5, sizeof(line5), "US#:%lu", (unsigned long)cnt_ultrasonic);
     OLED_ShowString(0, 48, (uint8_t*)line5);
 
     if (cnt_oled % 20 == 0) {
@@ -1610,21 +1977,20 @@ void startUltrasonicTask(void *argument)
   /* USER CODE BEGIN startUltrasonicTask */
 	HAL_TIM_IC_Start_IT(&htim12, TIM_CHANNEL_2);  // HC-SR04 Sensor
 	HCSR04_Read();
-	osDelay(5000);
+	//osDelay(5000);
   /* Infinite loop */
   for(;;)
   {
 	  cnt_ultrasonic++;  // Task counter
 
 	  HCSR04_Read();
+	  osDelay(30);  // wait for echo ISR to update uDistance
 
-	  // Read IR1 only — IR2 disabled for testing
+	  // IR reads happen AFTER ultrasonic so ping->update is not delayed
 	  irRaw1 = ADC_Read(&hadc1);  // ADC1 CH10 = PC0
 	  irDistance1 = IR_ADC_to_Distance_cm(irRaw1);
-	  //irRaw2 = ADC_Read(&hadc2);  // ADC2 CH11 = PC1
-	  //irDistance2 = IR_ADC_to_Distance_cm(irRaw2);
-
-		osDelay(100);
+	  irRaw2 = ADC_Read(&hadc2);  // ADC2 CH11 = PC1
+	  irDistance2 = IR_ADC_to_Distance_cm(irRaw2);
 }
   /* USER CODE END startUltrasonicTask */
 }
