@@ -2669,26 +2669,28 @@ def run_no_bt_full():
 
 
 # =============================================================================
-# Task 2 Standalone (Mode 10) — STM32 + ImgRec PC only, no BT/Algo
+# Task 2 Standalone (Mode 10) — BT + STM32 + ImgRec PC, no Algo
 # =============================================================================
 def run_task2_standalone():
     """
     Mode 10: Task 2 standalone.
 
     Flow:
-    1. STM32 sends snap command → RPi
-    2. RPi sends CAPTURE to Image Rec PC (via TCP)
-    3. Image Rec PC recognises arrow, sends result back
-    4. RPi sends turn command (left/right) to STM32
+    1. Android sends START via Bluetooth → RPi
+    2. RPi forwards START to STM32 → STM32 begins movement
+    3. STM32 sends snap command → RPi
+    4. RPi sends CAPTURE to Image Rec PC (via TCP)
+    5. Image Rec PC recognises arrow, sends result back
+    6. RPi sends turn command (left/right) to STM32
 
-    No Bluetooth, no Algorithm PC.
+    No Algorithm PC.
     """
     from tasks.task2_rpi import Task2RPI
     from config.config import get_config
 
     print("\n" + "=" * 60)
-    print("TASK 2 STANDALONE (STM32 + ImgRec PC)")
-    print("No Bluetooth, no Algorithm PC")
+    print("TASK 2 STANDALONE (BT + STM32 + ImgRec PC)")
+    print("Android sends START → RPi → STM32 begins movement")
     print("=" * 60)
 
     config = get_config()
@@ -2902,7 +2904,7 @@ def select_run_mode() -> str:
     print("  7. STM32 Movement Test (BT + Algo + STM32, no camera)")
     print("  8. No-Bluetooth Test (Algo + ImgRec, simulated movement)")
     print("  9. No-Bluetooth Full (Algo + ImgRec + STM32, robot MOVES)")
-    print(" 10. Task 2 Standalone (STM32 + ImgRec PC only, no BT/Algo)")
+    print(" 10. Task 2 Standalone (BT + STM32 + ImgRec PC, no Algo)")
     
     while True:
         mode = input("\nSelect mode (1-10) >> ").strip()

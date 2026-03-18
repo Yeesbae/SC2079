@@ -61,7 +61,7 @@ class Task2PC:
         # ========== Voting window settings ==========
         # Collect detections over VOTE_WINDOW frames, then pick majority vote
         self.VOTE_WINDOW = 15            # Number of frames to collect before deciding
-        self.detections = []              # List of (img_id, conf_level, frame) tuples
+        self.detections = []              # List of (img_id, conf_level, frame, result) tuples
         # ============================================
 
     def start(self):
@@ -99,7 +99,7 @@ class Task2PC:
 
                 # Only collect left/right arrows
                 if img_id in [self.LEFT_ARROW_ID, self.RIGHT_ARROW_ID]:
-                    self.detections.append((img_id, conf_level, frame))
+                    self.detections.append((img_id, conf_level, frame, result))
                     print(f"[Vote] Collected {len(self.detections)}/{self.VOTE_WINDOW}: "
                           f"{img_id} ({conf_level:.2f})")
 
@@ -124,28 +124,34 @@ class Task2PC:
         # Among detections of the winner, pick the one with highest confidence
         best_conf = 0.0
         best_frame = None
-        for img_id, conf, frm in self.detections:
+        best_result = None
+        for img_id, conf, frm, res in self.detections:
             if img_id == winner_id and conf > best_conf:
                 best_conf = conf
                 best_frame = frm
+                best_result = res
 
         self.obstacle_img_id = winner_id
+
+        # Draw bounding boxes on the frame using YOLO's plot()
+        annotated_frame = best_result.plot() if best_result is not None else best_frame
 
         # Save annotated frame (with bounding boxes) to images/task_2/
         save_path = os.path.join(
             IMAGES_DIR,
             f"obstacle_{self.obstacle_id}_{winner_id}_{best_conf:.2f}.jpg",
         )
-        cv2.imwrite(save_path, best_frame)
+        cv2.imwrite(save_path, annotated_frame)
         print(f"Saved detected image to {save_path}")
 
-        # Add to stitching dict
+        # Add annotated frame (with bounding boxes) to stitching dict
         add_to_stitching_dict(
             self.stitching_dict,
             self.obstacle_id,
             best_conf,
-            best_frame,
+            annotated_frame,
         )
+        self.stitching_arr.append(self.obstacle_id)
 
         # Send result to RPi
         message_content = f"{best_conf},{winner_id}"
@@ -201,12 +207,16 @@ class Task2PC:
                     self.obstacle_img_id = None
                     print(f"Obstacle ID incremented to {self.obstacle_id}")
 
-                elif "STITCH" in message_rcv:
-                    stitch_images(
-                        [1, 2],
-                        self.stitching_dict,
-                        filename=self.filename,
-                    )
+                elif "STITCH" in message_rcv or "FIN" in message_rcv:
+                    if self.stitching_arr:
+                        print(f"Generating tiled collage for obstacles: {self.stitching_arr}")
+                        stitch_images(
+                            self.stitching_arr,
+                            self.stitching_dict,
+                            filename=self.filename,
+                        )
+                    else:
+                        print("No images to stitch")
             except OSError as e:
                 print("Error in receiving data:", e)
                 break
