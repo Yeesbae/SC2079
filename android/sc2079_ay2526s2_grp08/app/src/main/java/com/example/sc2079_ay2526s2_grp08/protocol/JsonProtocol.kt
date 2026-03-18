@@ -55,4 +55,8 @@ object JsonProtocol {
 
         return obj.toString()
     }
+
+    fun encodeStartFastest(): String {
+        return """{"cmd":"START"}"""
+    }
 }

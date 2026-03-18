@@ -19,24 +19,6 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlin.collections.ArrayDeque
 
-/**
- * Main ViewModel - the single point of interaction between UI and backend.
- *
- * UI layer should call this; UI must NOT touch BluetoothManager directly.
- * All state is exposed via [state] StateFlow which UI observes.
- *
- * MDP ARCM Checklist mapping:
- * - C.1: Bluetooth transmit/receive (via send* methods and state.log)
- * - C.2: Device scanning/selection (via connectToDevice, getPairedDevices)
- * - C.3: Robot movement (via sendMoveForward, sendTurnLeft, etc.)
- * - C.4: Status display (via state.statusText)
- * - C.5: Arena display (via state.arena)
- * - C.6: Obstacle placement (via sendAddObstacle, sendRemoveObstacle)
- * - C.7: Target face annotation (via sendSetObstacleFace)
- * - C.8: Robust connectivity (handled by BluetoothManager)
- * - C.9: Target ID display (handled by handleTargetDetected)
- * - C.10: Robot position update (handled by handleRobotPosition)
- */
 class MainViewModel(
     private val bt: BluetoothManager
 ) : ViewModel() {
@@ -47,6 +29,7 @@ class MainViewModel(
     private val playbackQueue = ArrayDeque<PlaybackCommand>()
     private var waitingForSnap = false
     private var currentSnapObstacleId: String? = null
+    private var fallbackImageObstacleIndex = 1
     private var runTimerJob: Job? = null
     private var awaitingAck = false
     private val pendingMoves = ArrayDeque<Outgoing>()
@@ -316,6 +299,7 @@ class MainViewModel(
         playbackQueue.clear()
         waitingForSnap = false
         currentSnapObstacleId = null
+        fallbackImageObstacleIndex = 1
 
         // reset obstacle images / detected IDs
         resetObstacleImages()
@@ -333,9 +317,18 @@ class MainViewModel(
     }
 
     fun sendStartFastestPath() {
+        playbackJob?.cancel()
+        playbackJob = null
+        playbackQueue.clear()
+        waitingForSnap = false
+        currentSnapObstacleId = null
+        fallbackImageObstacleIndex = 1
+
         startRunTimer()
-        bt.sendLine("""{"cmd":"START_FAST"}""")
-        log(LogEntry.Kind.OUT, """{"cmd":"START_FAST"}""")
+
+        val json = JsonProtocol.encodeStartFastest()
+        bt.sendLine(json)
+        log(LogEntry.Kind.OUT, json)
         _state.update { it.copy(executionMode = ExecutionMode.FASTEST) }
     }
 
@@ -353,6 +346,18 @@ class MainViewModel(
                 usedTargetObstacleIds = emptySet(),
             )
         }
+    }
+
+    private fun resolveImageObstacleId(rawObstacleId: String?): String {
+        val trimmed = rawObstacleId?.trim().orEmpty()
+
+        if(trimmed.isNotEmpty()){
+            return if (trimmed.startsWith("B")) trimmed else "B$trimmed"
+        }
+
+        val resolved = "B$fallbackImageObstacleIndex"
+        fallbackImageObstacleIndex++
+        return resolved
     }
 
     fun clearAllDetectedImages() {
@@ -397,6 +402,7 @@ class MainViewModel(
         playbackQueue.clear()
         waitingForSnap = false
         currentSnapObstacleId = null
+        fallbackImageObstacleIndex = 1
         stopRunTimer()
 
         _state.update {
@@ -575,7 +581,7 @@ class MainViewModel(
             }
 
             is BluetoothManager.Event.ImageReceived -> {
-                val protocolId = if (ev.obstacleId.startsWith("B")) ev.obstacleId else "B${ev.obstacleId}"
+                val protocolId = resolveImageObstacleId(ev.obstacleId)
 
                 log(
                     LogEntry.Kind.INFO,
