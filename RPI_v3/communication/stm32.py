@@ -125,8 +125,11 @@ class STM32:
         """
         Send command to STM32
         
+        All commands are padded/truncated to exactly 5 bytes with null (\0).
+        e.g. "STRT" → b'STRT\x00', "SF050" → b'SF050'
+        
         Args:
-            command: Command string (e.g., "SF050", "RF090", "LF045")
+            command: Command string (e.g., "SF050", "STRT", "LEFT", "RGHT")
             
         Returns:
             True if sent successfully
@@ -136,13 +139,18 @@ class STM32:
             return False
         
         try:
-            # Commands should be exactly 5 bytes, no newline
             command = command.strip().upper()
+            raw = command.encode('utf-8')
             
-            # Send raw bytes without newline
-            self.serial.write(command.encode('utf-8'))
+            # Pad or truncate to exactly 5 bytes
+            if len(raw) < 5:
+                raw = raw + b'\x00' * (5 - len(raw))
+            elif len(raw) > 5:
+                raw = raw[:5]
+            
+            self.serial.write(raw)
             self.serial.flush()
-            print(f"[STM32] Sent: {command}")
+            print(f"[STM32] Sent: {command} ({raw!r})")
             return True
         except Exception as e:
             print(f"[STM32] Send error: {e}")
@@ -194,6 +202,64 @@ class STM32:
                     print(f"[STM32] Timeout - only heartbeats received, no ACK")
                     return None
             print(f"[STM32] Timeout - no response")
+            return None
+        except Exception as e:
+            print(f"[STM32] Receive error: {e}")
+            return None
+
+    def receive_task2_message(self, timeout: float = 30.0) -> Optional[str]:
+        """
+        Receive a Task 2 message from STM32.
+
+        Recognized messages (all 5 bytes from STM32):
+            IMG\r\n  → returns "IMG"
+            BULL\n   → returns "BULL"
+            FIN\r\n  → returns "FIN"
+
+        Heartbeat ("HB") messages are filtered out.
+
+        Args:
+            timeout: Read timeout in seconds
+
+        Returns:
+            Message keyword ("IMG", "BULL", "FIN") or None on timeout.
+        """
+        if not self.connected or not self.serial:
+            return None
+
+        try:
+            start_time = time.time()
+            buffer = ""
+
+            while time.time() - start_time < timeout:
+                if self.serial.in_waiting > 0:
+                    data = self.serial.read(self.serial.in_waiting)
+                    buffer += data.decode('utf-8', errors='ignore')
+
+                    # Check for Task 2 messages (order matters: check BULL before FIN
+                    # since both are short keywords)
+                    if "IMG" in buffer:
+                        print(f"[STM32] Received: IMG (take photo)")
+                        return "IMG"
+                    if "BULL" in buffer:
+                        print(f"[STM32] Received: BULL (confirm bull's-eye)")
+                        return "BULL"
+                    if "FIN" in buffer:
+                        print(f"[STM32] Received: FIN (task complete)")
+                        return "FIN"
+
+                    # Discard heartbeat noise to prevent buffer growth
+                    buffer = buffer.replace("HB", "")
+                    # Keep buffer from growing indefinitely
+                    if len(buffer) > 200:
+                        buffer = buffer[-50:]
+
+                time.sleep(0.01)
+
+            if buffer.replace("HB", "").strip():
+                print(f"[STM32] Timeout - unrecognized data in buffer: {buffer[:80]}")
+            else:
+                print(f"[STM32] Timeout - no Task 2 message")
             return None
         except Exception as e:
             print(f"[STM32] Receive error: {e}")

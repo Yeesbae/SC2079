@@ -1804,16 +1804,15 @@ def run_no_bt_test():
     
     # ========== HARDCODED OBSTACLE DATA ==========
     # Modify this to test different obstacle configurations
-    # Format: {"obstacles": [...], "robot_x": x, "robot_y": y, "robot_dir": dir}
+    # Format: {"obstacles": [...], "robot": {"x":1,"y":1,"d":0}, "grid_size": {"x":40,"y":40}}
     SAMPLE_OBSTACLES = {
         "obstacles": [
-            {"id": 1, "x": 4, "y": 14, "d": 4},    # d: 0=N, 2=E, 4=S, 6=W
-            {"id": 2, "x": 14, "y": 9, "d": 6},
-            {"id": 3, "x": 17, "y": 17, "d": 4},
+            {"id": 1, "x": 4, "y": 14, "d": 4, "width": 2, "length": 2},    # d: 0=N, 2=E, 4=S, 6=W
+            {"id": 2, "x": 14, "y": 9, "d": 6, "width": 2, "length": 2},
+            {"id": 3, "x": 17, "y": 17, "d": 4, "width": 2, "length": 2},
         ],
-        "robot_x": 1,
-        "robot_y": 1,
-        "robot_dir": 0,  # 0=N, 2=E, 4=S, 6=W
+        "robot": {"x": 1, "y": 1, "d": 0},  # 0=N, 2=E, 4=S, 6=W
+        "grid_size": {"x": 40, "y": 40},
         "mode": "simulator",
     }
     # ============================================
@@ -2235,13 +2234,12 @@ def run_no_bt_full():
     # ========== HARDCODED OBSTACLE DATA ==========
     SAMPLE_OBSTACLES = {
         "obstacles": [
-            {"id": 1, "x": 4, "y": 14, "d": 4},
-            {"id": 2, "x": 14, "y": 9, "d": 6},
-            {"id": 3, "x": 17, "y": 17, "d": 4},
+            {"id": 1, "x": 4, "y": 14, "d": 4, "width": 2, "length": 2},
+            {"id": 2, "x": 14, "y": 9, "d": 6, "width": 2, "length": 2},
+            {"id": 3, "x": 17, "y": 17, "d": 4, "width": 2, "length": 2},
         ],
-        "robot_x": 1,
-        "robot_y": 1,
-        "robot_dir": 0,
+        "robot": {"x": 1, "y": 1, "d": 0},
+        "grid_size": {"x": 40, "y": 40},
         "mode": "simulator",
     }
     # ============================================
@@ -2671,6 +2669,46 @@ def run_no_bt_full():
 
 
 # =============================================================================
+# Task 2 Standalone (Mode 10) — BT + STM32 + ImgRec PC, no Algo
+# =============================================================================
+def run_task2_standalone():
+    """
+    Mode 10: Task 2 standalone.
+
+    Flow:
+    1. Android sends START via Bluetooth → RPi
+    2. RPi forwards START to STM32 → STM32 begins movement
+    3. STM32 sends snap command → RPi
+    4. RPi sends CAPTURE to Image Rec PC (via TCP)
+    5. Image Rec PC recognises arrow, sends result back
+    6. RPi sends turn command (left/right) to STM32
+
+    No Algorithm PC.
+    """
+    from tasks.task2_rpi import Task2RPI
+    from config.config import get_config
+
+    print("\n" + "=" * 60)
+    print("TASK 2 STANDALONE (BT + STM32 + ImgRec PC)")
+    print("Android sends START → RPi → STM32 begins movement")
+    print("=" * 60)
+
+    config = get_config()
+
+    print(f"\nYou are {'out' if config.is_outdoors else 'in'}doors.")
+    task2 = Task2RPI(config)
+    task2.initialize()
+
+    try:
+        while True:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        print("\nStopping...")
+        task2.stop()
+        print("[Mode 10] Task 2 standalone ended")
+
+
+# =============================================================================
 # Main Process Manager
 # =============================================================================
 class MultiProcessManager:
@@ -2866,12 +2904,13 @@ def select_run_mode() -> str:
     print("  7. STM32 Movement Test (BT + Algo + STM32, no camera)")
     print("  8. No-Bluetooth Test (Algo + ImgRec, simulated movement)")
     print("  9. No-Bluetooth Full (Algo + ImgRec + STM32, robot MOVES)")
+    print(" 10. Task 2 Standalone (BT + STM32 + ImgRec PC, no Algo)")
     
     while True:
-        mode = input("\nSelect mode (1-9) >> ").strip()
-        if mode in ['1', '2', '3', '4', '5', '6', '7', '8', '9']:
+        mode = input("\nSelect mode (1-10) >> ").strip()
+        if mode in [str(i) for i in range(1, 11)]:
             return mode
-        print("Please enter 1-9")
+        print("Please enter 1-10")
 
 
 def select_task() -> int:
@@ -2949,3 +2988,7 @@ if __name__ == "__main__":
     elif run_mode == '9':
         # No-Bluetooth Full (Algo + ImgRec + STM32, robot MOVES)
         run_no_bt_full()
+    
+    elif run_mode == '10':
+        # Task 2 Standalone (STM32 + ImgRec PC, no BT/Algo)
+        run_task2_standalone()
