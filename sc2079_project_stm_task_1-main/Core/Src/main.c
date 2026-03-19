@@ -56,6 +56,20 @@
 #define TURN_LEFT_INNER_RATIO  0.59f   // inner/outer wheel ratio for left turns
 #define TURN_RIGHT_INNER_RATIO 0.50f   // inner/outer wheel ratio for right turns (lower = tighter)
 
+// --- Smooth bypass tuning for obstacle 1 (10x10cm) ---
+#define BYPASS_CRUISE_HEADING_R1   -30.0   // Right: turn right until this heading
+#define BYPASS_CRUISE_HEADING_R2    10.0    // Right: overshoot left past straight
+#define BYPASS_CRUISE_HEADING_R3    1.0    // Right: straighten threshold
+#define BYPASS_CRUISE_HEADING_L1    120.0   // Left: turn left until this heading
+#define BYPASS_CRUISE_HEADING_L2   -10.0    // Left: overshoot right past straight
+#define BYPASS_CRUISE_HEADING_L3   -1.0    // Left: straighten threshold
+#define BYPASS_SERVO_R             90     // Moderate right for initial dodge
+#define BYPASS_SERVO_L              45     // Moderate left for initial dodge
+#define BYPASS_SERVO_SLIGHT_R       95     // Slight right for final straightening
+#define BYPASS_SERVO_SLIGHT_L       62     // Slight left for final straightening
+float bypass_inner_ratio =         0.3f;   // Inner wheel ratio, set before each turn
+#define BYPASS_TIMEOUT_MS          5000    // Safety timeout
+
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -182,6 +196,7 @@ osEventFlagsId_t task2EventFlags;
 
 volatile uint8_t rpiDirection = 0;     // 'L' or 'R' from RPi
 volatile int cruise_mode = 0;         // 1 = constant-speed forward, 0 = normal PID
+volatile int smooth_maneuver = 0;     // 1 = smooth curve mode (cruise + manual servo)
 
 /* USER CODE END PV */
 
@@ -409,10 +424,10 @@ int main(void)
 
   /* Create the thread(s) */
   /* creation of defaultTask */
-  //defaultTaskHandle = osThreadNew(StartDefaultTask, NULL, &defaultTask_attributes);
+  defaultTaskHandle = osThreadNew(StartDefaultTask, NULL, &defaultTask_attributes);
 
   /* creation of communicateTask */
-  //communicateTaskHandle = osThreadNew(startCommunicateTask, NULL, &communicateTask_attributes);
+  communicateTaskHandle = osThreadNew(startCommunicateTask, NULL, &communicateTask_attributes);
 
   /* creation of motorTask */
   motorTaskHandle = osThreadNew(startMotorTask, NULL, &motorTask_attributes);
@@ -1136,13 +1151,19 @@ void moveForwardUntilIRFar(uint8_t sensor_id, uint16_t delta_cm) {
 	osDelay(200);
 
 	uint16_t prev_reading = *ir_ptr;
+	int confirm = 0;
 	for (;;) {
 		osDelay(10);
 		uint16_t curr_reading = *ir_ptr;
 		if (prev_reading < 35 && (curr_reading - prev_reading) >= delta_cm) {
-			break;
+			confirm++;
+			if (confirm >= 2) break;
+			// Keep prev_reading unchanged so next iteration re-checks
+			// from the same near baseline — rejects single-sample spikes.
+		} else {
+			confirm = 0;
+			prev_reading = curr_reading;
 		}
-		prev_reading = curr_reading;
 	}
 
 	pwmVal_servo = SERVOCENTER;
@@ -1209,6 +1230,142 @@ void requestBullConfirmation(void) {
 void sendTaskComplete(void) {
 	uint8_t msg = 'F';
 	HAL_UART_Transmit(&huart3, &msg, 1, 0xFFFF);
+}
+
+/* -------- Smooth S-curve bypass for obstacle 1 (10x10cm) -------- */
+
+void smoothBypassObstacle1Right(void) {
+	// --- Setup: enable smooth mode, start cruise ---
+	smooth_maneuver = 1;
+	straight_correction = 0;
+	total_angle = 0.0;
+	target_angle = 0.0;
+
+	motor_cruise_reset();
+	cruise_mode = 1;
+	e_brake = 0;
+
+	uint32_t t0 = HAL_GetTick();
+
+	// Segment 1: Moderate RIGHT to dodge obstacle
+	// Heading decreases (goes negative) during right turn
+	bypass_inner_ratio = 0.4f;
+	pwmVal_servo = BYPASS_SERVO_R;
+	while (total_angle > BYPASS_CRUISE_HEADING_R1
+	       && (HAL_GetTick() - t0) < BYPASS_TIMEOUT_MS) {
+		osDelay(2);
+	}
+
+	// Segment 2: Moderate LEFT to curve back toward center
+	// Heading increases, passes through 0 to slight positive overshoot
+	bypass_inner_ratio = 0.2f;
+	pwmVal_servo = BYPASS_SERVO_L;
+	while (total_angle < BYPASS_CRUISE_HEADING_R2
+	       && (HAL_GetTick() - t0) < BYPASS_TIMEOUT_MS) {
+		osDelay(150);
+	};
+
+	// Segment 3: Slight RIGHT to straighten heading to ~0
+	bypass_inner_ratio = 0.f;
+	pwmVal_servo = BYPASS_SERVO_SLIGHT_R;
+	while (total_angle > BYPASS_CRUISE_HEADING_R3
+	       && (HAL_GetTick() - t0) < BYPASS_TIMEOUT_MS) {
+		osDelay(10);
+	}
+
+	// --- Stop ---
+	pwmVal_servo = SERVOCENTER;
+	cruise_mode = 0;
+	e_brake = 1;
+	pwmVal_L = pwmVal_R = 0;
+	motor_set_pwm_left(0);
+	motor_set_pwm_right(0);
+	smooth_maneuver = 0;
+	osDelay(300);
+}
+
+void smoothBypassObstacle1Left(void) {
+	// --- Setup: enable smooth mode, start cruise ---
+	smooth_maneuver = 1;
+	straight_correction = 0;
+	total_angle = 0.0;
+	target_angle = 0.0;
+
+	motor_cruise_reset();
+	cruise_mode = 1;
+	e_brake = 0;
+
+	uint32_t t0 = HAL_GetTick();
+
+	// Segment 1: Moderate LEFT to dodge obstacle
+	// Heading increases (goes positive) during left turn
+	pwmVal_servo = BYPASS_SERVO_L;
+	while (total_angle < BYPASS_CRUISE_HEADING_L1
+	       && (HAL_GetTick() - t0) < BYPASS_TIMEOUT_MS) {
+		osDelay(10);
+	}
+
+	// Segment 2: Moderate RIGHT to curve back toward center
+	// Heading decreases, passes through 0 to slight negative overshoot
+	pwmVal_servo = BYPASS_SERVO_R;
+	while (total_angle > BYPASS_CRUISE_HEADING_L2
+	       && (HAL_GetTick() - t0) < BYPASS_TIMEOUT_MS) {
+		osDelay(10);
+	}
+
+	// Segment 3: Slight LEFT to straighten heading to ~0
+	pwmVal_servo = BYPASS_SERVO_SLIGHT_L;
+	while (total_angle < BYPASS_CRUISE_HEADING_L3
+	       && (HAL_GetTick() - t0) < BYPASS_TIMEOUT_MS) {
+		osDelay(10);
+	}
+
+	// --- Stop ---
+	pwmVal_servo = SERVOCENTER;
+	cruise_mode = 0;
+	e_brake = 1;
+	pwmVal_L = pwmVal_R = 0;
+	motor_set_pwm_left(0);
+	motor_set_pwm_right(0);
+	smooth_maneuver = 0;
+	osDelay(300);
+}
+
+void testSmoothBypassRight(uint16_t target_cm) {
+	target_cm += 15;
+	total_angle = 0.0;
+	target_angle = 0.0;
+	pwmVal_servo = SERVOCENTER;
+	straight_correction = 0;
+	motor_cruise_reset();
+	cruise_mode = 1;
+	e_brake = 0;
+
+	// Cruise forward until ultrasonic detects obstacle
+	while (uDistance > target_cm || uDistance < 3) {
+		osDelay(10);
+	}
+
+	// Transition directly into smooth bypass (no stop)
+	smoothBypassObstacle1Right();
+}
+
+void testSmoothBypassLeft(uint16_t target_cm) {
+	total_angle = 0.0;
+	target_angle = 0.0;
+	pwmVal_servo = SERVOCENTER;
+	straight_correction = 0;
+	motor_cruise_reset();
+	cruise_mode = 1;
+	e_brake = 0;
+
+	// Cruise forward until ultrasonic detects obstacle
+	while (uDistance > target_cm || uDistance < 3) {
+		osDelay(10);
+	}
+
+	// Transition directly into smooth bypass (no stop)
+	smoothBypassObstacle1Left();
 }
 
 void testSpeed(char* buffer, int speed, int delay) {
@@ -1394,8 +1551,15 @@ void StartDefaultTask(void *argument)
 
 	// --- TEST 6: moveForwardUntilIRPassObstacle (IR1 = right) ---
 	// Place an obstacle to the RIGHT. Same two-phase detection.
-	osDelay(3000);
-	moveForwardUntilIRPassObstacle(1, 25, 60);
+//	osDelay(3000);
+//	moveForwardUntilIRPassObstacle(1, 25, 60);
+//	vTaskSuspend(NULL);
+
+	// --- TEST 13: Smooth S-curve bypass (right) ---
+	// Place 10x10cm obstacle ahead. Car cruises forward, triggers smooth
+	// right bypass when ultrasonic < 25cm, curves around and stops facing forward.
+	osDelay(2000);
+	testSmoothBypassRight(30);
 	vTaskSuspend(NULL);
 
 	// --- TEST 7: RPi handshake - requestImageDetection ---
@@ -1714,8 +1878,8 @@ void startMotorTask(void *argument)
 
 //		temp1 = pwmVal_servo;
 
-		// left
-		if (pwmVal_servo < LEFT_LIMIT) {
+		// left (skip if smooth_maneuver — use cruise mode instead)
+		if (!smooth_maneuver && pwmVal_servo < LEFT_LIMIT) {
 			temp2 = 0;
 			pwmVal_R = PID_Angle(error_angle);
 //			temp1 = pwmVal_R;
@@ -1726,8 +1890,8 @@ void startMotorTask(void *argument)
 			motor_set_pwm_left(error_angle > 0 ? pwmVal_L : -pwmVal_L);
 		}
 
-		// right
-		else if (pwmVal_servo > RIGHT_LIMIT) {
+		// right (skip if smooth_maneuver — use cruise mode instead)
+		else if (!smooth_maneuver && pwmVal_servo > RIGHT_LIMIT) {
 			temp2 = 1;
 			pwmVal_L = PID_Angle(error_angle);
 			pwmVal_R = pwmVal_L * TURN_RIGHT_INNER_RATIO;
@@ -1744,7 +1908,23 @@ void startMotorTask(void *argument)
 		// center
 		else {
 			temp2 = 2;
-			if (cruise_mode) {
+			if (smooth_maneuver && cruise_mode) {
+				// Differential PWM for tighter turns during smooth bypass
+				int outer = CRUISE_PWM;
+				int inner = (int)(CRUISE_PWM * bypass_inner_ratio);
+				if (pwmVal_servo > SERVOCENTER) {
+					// Right turn: slow right (inner) wheel
+					motor_set_pwm_left(outer);
+					motor_set_pwm_right(inner);
+				} else if (pwmVal_servo < SERVOCENTER) {
+					// Left turn: slow left (inner) wheel
+					motor_set_pwm_right(outer);
+					motor_set_pwm_left(inner);
+				} else {
+					motor_set_pwm_left(outer);
+					motor_set_pwm_right(outer);
+				}
+			} else if (cruise_mode) {
 				motor_update_cruise(leftEncoderVal, rightEncoderVal, dt);
 			} else {
 				motor_cruise_reset();
@@ -1885,7 +2065,7 @@ void startGyroTask(void *argument)
 
 		double abs_err = fabs(error_angle);
 
-		if (!e_brake && pwmVal_servo > LEFT_LIMIT && pwmVal_servo < RIGHT_LIMIT) {
+		if (!e_brake && !smooth_maneuver && pwmVal_servo > LEFT_LIMIT && pwmVal_servo < RIGHT_LIMIT) {
 			if (abs_err > 1) {
 				straight_correction = 1;
 

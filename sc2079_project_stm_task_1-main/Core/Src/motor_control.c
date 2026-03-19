@@ -220,9 +220,10 @@ int PID_Angle(double errord) {
 		return 0;
 	}
 
-	// Constant speed for consistent radius, higher than original
-	if (a > 10.0f) return 600;    // Flat throughout turn
-	return 500;                    // Final 1-10°: gentle approach
+	if (a > 30.0f) return 750;
+	else if (a > 20.0f) return 650;
+	else if (a > 10.0f) return 550;
+	else return 450;
 }
 
 //int PID_Angle(float error_angle_deg)

@@ -23,6 +23,7 @@ extern TIM_HandleTypeDef htim1;
 #define PWM_MIN    450   // ~199
 #define DUTY_MAX    700   // 799
 #define DUTY_MIN    550   // ~199
+#define CRUISE_PWM  650  // slow speed for testing (just above 450 deadband)
 
 #define TURN_ANGLE_TOL_DEG 0.5f
 #define STRAIGHT_POS_TOL 100
@@ -40,6 +41,8 @@ int vel_pid(PID* pid, float target, float meas, float dt);
 void motor_update_turn(double error_angle, float dt, int dir);
 void motor_update_straight(int32_t leftTarget, int32_t rightTarget,
                            int32_t leftEncoderVal, int32_t rightEncoderVal, float dt);
+void motor_update_cruise(int32_t leftEncoderVal, int32_t rightEncoderVal, float dt);
+void motor_cruise_reset(void);
 void motor_set_pwm_left(int16_t cmd);
 void motor_set_pwm_right(int16_t cmd);
 

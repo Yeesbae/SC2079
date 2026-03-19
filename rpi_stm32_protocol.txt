@@ -1,0 +1,119 @@
+================================================================================
+  RPi <-> STM32 Communication Protocol (Task 1 & Task 2)
+================================================================================
+
+  UART: 115200 baud, 8N1
+  Format: RPi sends 5 bytes, STM32 sends 1 byte. Same style for both tasks.
+
+================================================================================
+  1. RPi -> STM32  (5 bytes, first byte = command)
+================================================================================
+
+  TASK 2 COMMANDS (first byte only, remaining bytes ignored):
+
+    'T'  .... = Start Task 2 autonomous routine
+    'W'  .... = Direction LEFT  (arrow detected pointing left)
+    'E'  .... = Direction RIGHT (arrow detected pointing right)
+    'C'  .... = Bull's-eye confirmed (carpark ahead)
+
+  TASK 1 COMMANDS (5-byte format XYNNN, kept for testing):
+
+    'S' F 050 = Straight Forward 50cm
+    'S' B 030 = Straight Backward 30cm
+    'R' F 090 = Right turn 90 degrees
+    'L' F 045 = Left turn 45 degrees
+    'U' F 030 = Move forward until 30cm from object (ultrasonic)
+
+  SYSTEM:
+
+    'G' Y R O R = System reset (reboot STM32)
+
+================================================================================
+  2. STM32 -> RPi  (1 byte)
+================================================================================
+
+    'A' = Task 1 command completed (ack)
+    'I' = Request image detection (take photo, detect arrow)
+    'B' = Request bull's-eye confirmation (check for bull's-eye)
+    'F' = Task 2 finished (robot parked)
+
+================================================================================
+  3. Task 2 Message Flow
+================================================================================
+
+  RPi              STM32
+   |                 |
+   |-- 'T' -------->|  Start
+   |                 |  ... drives to obstacle 1 ...
+   |<-------- 'I' --|  Request image
+   |  [detect arrow] |
+   |-- 'W' or 'E' ->|  Left or Right
+   |                 |  ... navigates around obstacle 1 ...
+   |                 |  ... drives to obstacle 2 ...
+   |<-------- 'I' --|  Request image
+   |  [detect arrow] |
+   |-- 'W' or 'E' ->|  Left or Right
+   |                 |  ... navigates around obstacle 2 ...
+   |                 |  ... returns to carpark area ...
+   |<-------- 'B' --|  Request bull's-eye check
+   |  [check target] |
+   |-- 'C' -------->|  Confirmed
+   |                 |  ... drives into carpark, stops ...
+   |<-------- 'F' --|  Done
+   |                 |
+
+================================================================================
+  4. Python Example (RPi side)
+================================================================================
+
+  import serial
+
+  ser = serial.Serial('/dev/ttyS0', 115200, timeout=1)
+
+  def send(cmd):
+      """Send 5 bytes, first byte is the command."""
+      data = cmd.encode('ascii').ljust(5, b'\x00')
+      ser.write(data[:5])
+
+  def recv():
+      """Read 1 byte from STM32."""
+      return ser.read(1).decode('ascii', errors='replace')
+
+  # --- Task 2 ---
+  send('T')                          # start
+
+  msg = recv()                       # wait for 'I'
+  assert msg == 'I'
+  direction = detect_arrow()         # your image detection
+  send('W' if direction == 'left' else 'E')
+
+  msg = recv()                       # wait for 'I' (obstacle 2)
+  assert msg == 'I'
+  direction = detect_arrow()
+  send('W' if direction == 'left' else 'E')
+
+  msg = recv()                       # wait for 'B'
+  assert msg == 'B'
+  send('C')                          # confirm bull's-eye
+
+  msg = recv()                       # wait for 'F'
+  assert msg == 'F'
+  print("Done!")
+
+  # --- Task 1 (testing) ---
+  send('SF050')                      # straight forward 50cm
+  ack = recv()                       # wait for 'A'
+
+================================================================================
+  5. Quick Reference
+================================================================================
+
+  RPi sends  |  Meaning           | STM32 sends | Meaning
+  -----------|--------------------| ------------|------------------
+  T....      |  Start Task 2      | A           | Task 1 cmd done
+  W....      |  Go LEFT           | I           | Need image detect
+  E....      |  Go RIGHT          | B           | Need bull's-eye
+  C....      |  Bull confirmed    | F           | Task 2 finished
+  GYROR      |  System reset      |             |
+  SF050      |  Fwd 50cm (Task 1) |             |
+  RF090      |  Right 90 (Task 1) |             |
