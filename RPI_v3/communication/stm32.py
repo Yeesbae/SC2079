@@ -211,10 +211,10 @@ class STM32:
         """
         Receive a Task 2 message from STM32.
 
-        Recognized messages (all 5 bytes from STM32):
-            IMG\r\n  → returns "IMG"
-            BULL\n   → returns "BULL"
-            FIN\r\n  → returns "FIN"
+        Recognized single-character messages from STM32:
+            I  → returns "IMG"   (image request)
+            B  → returns "BULL"  (bull's-eye request)
+            F  → returns "FIN"   (task complete)
 
         Heartbeat ("HB") messages are filtered out.
 
@@ -236,16 +236,15 @@ class STM32:
                     data = self.serial.read(self.serial.in_waiting)
                     buffer += data.decode('utf-8', errors='ignore')
 
-                    # Check for Task 2 messages (order matters: check BULL before FIN
-                    # since both are short keywords)
-                    if "IMG" in buffer:
-                        print(f"[STM32] Received: IMG (take photo)")
+                    # Check for Task 2 single-character messages
+                    if "I" in buffer:
+                        print(f"[STM32] Received: I (take photo)")
                         return "IMG"
-                    if "BULL" in buffer:
-                        print(f"[STM32] Received: BULL (confirm bull's-eye)")
+                    if "B" in buffer:
+                        print(f"[STM32] Received: B (confirm bull's-eye)")
                         return "BULL"
-                    if "FIN" in buffer:
-                        print(f"[STM32] Received: FIN (task complete)")
+                    if "F" in buffer:
+                        print(f"[STM32] Received: F (task complete)")
                         return "FIN"
 
                     # Discard heartbeat noise to prevent buffer growth
