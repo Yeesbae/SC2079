@@ -248,7 +248,7 @@ class Task2RPI:
         self.recognition_result = None
         # Tell PC to capture bullseye only (PC filters out arrows)
         self.pc.send("CAPTURE_BULL")
-        got_result = self.recognition_event.wait(timeout=10.0)
+        got_result = self.recognition_event.wait(timeout=15.0)
 
         if got_result and self.recognition_result == "BULL":
             print("[Task2] Bullseye detected – sending 'yes' to STM32")

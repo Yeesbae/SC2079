@@ -236,6 +236,12 @@ class STM32:
                     data = self.serial.read(self.serial.in_waiting)
                     buffer += data.decode('utf-8', errors='ignore')
 
+                    # Strip heartbeats FIRST so "HB" doesn't false-match "B"/"F"
+                    buffer = buffer.replace("HB", "")
+                    # Keep buffer from growing indefinitely
+                    if len(buffer) > 200:
+                        buffer = buffer[-50:]
+
                     # Check for Task 2 single-character messages
                     if "I" in buffer:
                         print(f"[STM32] Received: I (take photo)")
@@ -246,12 +252,6 @@ class STM32:
                     if "F" in buffer:
                         print(f"[STM32] Received: F (task complete)")
                         return "FIN"
-
-                    # Discard heartbeat noise to prevent buffer growth
-                    buffer = buffer.replace("HB", "")
-                    # Keep buffer from growing indefinitely
-                    if len(buffer) > 200:
-                        buffer = buffer[-50:]
 
                 time.sleep(0.01)
 
