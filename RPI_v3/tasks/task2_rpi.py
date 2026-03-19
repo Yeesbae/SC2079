@@ -284,6 +284,7 @@ class Task2RPI:
                 message_rcv = self.pc.receive()
                 if message_rcv is None:
                     continue
+                message_rcv = message_rcv.strip()
                 print(f"[Task2] Received from PC: {message_rcv}")
 
                 if "NONE" in message_rcv:
