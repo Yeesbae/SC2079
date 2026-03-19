@@ -60,13 +60,17 @@
 #define BYPASS_CRUISE_HEADING_R1   -25.0   // Right: turn right until this heading
 #define BYPASS_CRUISE_HEADING_R2    10.0    // Right: overshoot left past straight
 #define BYPASS_CRUISE_HEADING_R3    1.0    // Right: straighten threshold
-#define BYPASS_CRUISE_HEADING_L1    0.0   // Left: turn left until this heading
-#define BYPASS_CRUISE_HEADING_L2   -10.0    // Left: overshoot right past straight
+#define BYPASS_CRUISE_HEADING_L1    7.0   // Left: turn left until this heading
+#define BYPASS_CRUISE_HEADING_L2   -23.0    // Left: overshoot right past straight
 #define BYPASS_CRUISE_HEADING_L3   -1.0    // Left: straighten threshold
-#define BYPASS_SERVO_R             90     // Moderate right for initial dodge
-#define BYPASS_SERVO_L              45     // Moderate left for initial dodge
-#define BYPASS_SERVO_SLIGHT_R       95     // Slight right for final straightening
-#define BYPASS_SERVO_SLIGHT_L       62     // Slight left for final straightening
+// Right bypass servos (confirmed working)
+#define BYPASS_R_SERVO_OUT          90     // Seg1: right dodge
+#define BYPASS_R_SERVO_BACK         45     // Seg2: left recovery
+#define BYPASS_R_SERVO_STRAIGHT     95     // Seg3: straighten
+// Left bypass servos (mirrored)
+#define BYPASS_L_SERVO_OUT          45     // Seg1: left dodge
+#define BYPASS_L_SERVO_BACK         103    // Seg2: right recovery
+#define BYPASS_L_SERVO_STRAIGHT     53     // Seg3: straighten
 float bypass_inner_ratio =         0.3f;   // Inner wheel ratio, set before each turn
 #define BYPASS_TIMEOUT_MS          5000    // Safety timeout
 
@@ -1250,7 +1254,7 @@ void smoothBypassObstacle1Right(void) {
 	// Segment 1: Moderate RIGHT to dodge obstacle
 	// Heading decreases (goes negative) during right turn
 	bypass_inner_ratio = 0.4f;
-	pwmVal_servo = BYPASS_SERVO_R;
+	pwmVal_servo = BYPASS_R_SERVO_OUT;
 	while (total_angle > BYPASS_CRUISE_HEADING_R1
 	       && (HAL_GetTick() - t0) < BYPASS_TIMEOUT_MS) {
 		osDelay(2);
@@ -1259,7 +1263,7 @@ void smoothBypassObstacle1Right(void) {
 	// Segment 2: Moderate LEFT to curve back toward center
 	// Heading increases, passes through 0 to slight positive overshoot
 	bypass_inner_ratio = 0.5f;
-	pwmVal_servo = BYPASS_SERVO_L;
+	pwmVal_servo = BYPASS_R_SERVO_BACK;
 	while (total_angle < BYPASS_CRUISE_HEADING_R2
 	       && (HAL_GetTick() - t0) < BYPASS_TIMEOUT_MS) {
 		osDelay(150);
@@ -1267,7 +1271,7 @@ void smoothBypassObstacle1Right(void) {
 
 	// Segment 3: Slight RIGHT to straighten heading to ~0, brake if too close
 	bypass_inner_ratio = 0.5f;
-	pwmVal_servo = BYPASS_SERVO_SLIGHT_R;
+	pwmVal_servo = BYPASS_R_SERVO_STRAIGHT;
 	while (total_angle > BYPASS_CRUISE_HEADING_R3
 	       && (uDistance > 10 || uDistance < 3)
 	       && (HAL_GetTick() - t0) < BYPASS_TIMEOUT_MS) {
@@ -1302,25 +1306,25 @@ void smoothBypassObstacle1Left(void) {
 
 	// Segment 1: Moderate LEFT to dodge obstacle
 	// Heading increases (goes positive) during left turn
-	bypass_inner_ratio = 0.3f;
-	pwmVal_servo = BYPASS_SERVO_L;
+	bypass_inner_ratio = 0.4f;
+	pwmVal_servo = BYPASS_L_SERVO_OUT;
 	while (total_angle < BYPASS_CRUISE_HEADING_L1
 	       && (HAL_GetTick() - t0) < BYPASS_TIMEOUT_MS) {
-		osDelay(10);
+		osDelay(2);
 	}
 
 	// Segment 2: Moderate RIGHT to curve back toward center
 	// Heading decreases, passes through 0 to slight negative overshoot
-	bypass_inner_ratio = 0.3f;
-	pwmVal_servo = BYPASS_SERVO_R;
+	bypass_inner_ratio = 0.5f;
+	pwmVal_servo = BYPASS_L_SERVO_BACK;
 	while (total_angle > BYPASS_CRUISE_HEADING_L2
 	       && (HAL_GetTick() - t0) < BYPASS_TIMEOUT_MS) {
-		osDelay(10);
+		osDelay(150);
 	}
 
 	// Segment 3: Slight LEFT to straighten heading to ~0, brake if too close
 	bypass_inner_ratio = 0.5f;
-	pwmVal_servo = BYPASS_SERVO_SLIGHT_L;
+	pwmVal_servo = BYPASS_L_SERVO_STRAIGHT;
 	while (total_angle < BYPASS_CRUISE_HEADING_L3
 	       && (uDistance > 10 || uDistance < 3)
 	       && (HAL_GetTick() - t0) < BYPASS_TIMEOUT_MS) {
@@ -1359,6 +1363,7 @@ void testSmoothBypassRight(uint16_t target_cm) {
 }
 
 void testSmoothBypassLeft(uint16_t target_cm) {
+	target_cm += 15;
 	total_angle = 0.0;
 	target_angle = 0.0;
 	pwmVal_servo = SERVOCENTER;
