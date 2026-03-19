@@ -1265,16 +1265,18 @@ void smoothBypassObstacle1Right(void) {
 		osDelay(150);
 	};
 
-	// Segment 3: Slight RIGHT to straighten heading to ~0
+	// Segment 3: Slight RIGHT to straighten heading to ~0, brake if too close
 	bypass_inner_ratio = 0.5f;
 	pwmVal_servo = BYPASS_SERVO_SLIGHT_R;
 	while (total_angle > BYPASS_CRUISE_HEADING_R3
+	       && (uDistance > 10 || uDistance < 3)
 	       && (HAL_GetTick() - t0) < BYPASS_TIMEOUT_MS) {
 		osDelay(10);
 	}
 
 	// --- Stop ---
 	pwmVal_servo = SERVOCENTER;
+	straight_correction = 0;
 	cruise_mode = 0;
 	e_brake = 1;
 	pwmVal_L = pwmVal_R = 0;
@@ -1316,16 +1318,18 @@ void smoothBypassObstacle1Left(void) {
 		osDelay(10);
 	}
 
-	// Segment 3: Slight LEFT to straighten heading to ~0
+	// Segment 3: Slight LEFT to straighten heading to ~0, brake if too close
 	bypass_inner_ratio = 0.5f;
 	pwmVal_servo = BYPASS_SERVO_SLIGHT_L;
 	while (total_angle < BYPASS_CRUISE_HEADING_L3
+	       && (uDistance > 10 || uDistance < 3)
 	       && (HAL_GetTick() - t0) < BYPASS_TIMEOUT_MS) {
 		osDelay(10);
 	}
 
 	// --- Stop ---
 	pwmVal_servo = SERVOCENTER;
+	straight_correction = 0;
 	cruise_mode = 0;
 	e_brake = 1;
 	pwmVal_L = pwmVal_R = 0;
@@ -1920,7 +1924,7 @@ void startMotorTask(void *argument)
 			temp2 = 2;
 			if (smooth_maneuver && cruise_mode) {
 				// Differential PWM for tighter turns during smooth bypass
-				int outer = 550;
+				int outer = 515;
 				int inner = (int)(CRUISE_PWM * bypass_inner_ratio);
 				if (pwmVal_servo > SERVOCENTER) {
 					// Right turn: slow left (inner) wheel
