@@ -50,7 +50,7 @@
 #define SERVOCENTER 74 // SERVO_TICKS_FROM_MS(1.50)  // 75
 #define SERVORIGHT  130 // SERVO_TICKS_FROM_MS(2.00)  // 100
 #define SERVOLEFT   45 // SERVO_TICKS_FROM_MS(1.00)  // 50
-#define LEFT_LIMIT  (SERVOLEFT + 10)    // 55
+#define LEFT_LIMIT  (SERVOLEFT + 5)    // 55
 #define RIGHT_LIMIT (SERVORIGHT - 10)   // 120
 #define SERVO_ERR_TO_CCR_GAIN  14.0/5.0
 #define TURN_LEFT_INNER_RATIO  0.59f   // inner/outer wheel ratio for left turns
@@ -58,7 +58,7 @@
 
 // --- Smooth bypass tuning for obstacle 1 (10x10cm) ---
 #define BYPASS_CRUISE_HEADING_R1   -25.0   // Right: turn right until this heading
-#define BYPASS_CRUISE_HEADING_R2    10.0    // Right: overshoot left past straight
+#define BYPASS_CRUISE_HEADING_R2    11.5    // Right: overshoot left past straight
 #define BYPASS_CRUISE_HEADING_R3    1.0    // Right: straighten threshold
 #define BYPASS_CRUISE_HEADING_L1    7.0   // Left: turn left until this heading
 #define BYPASS_CRUISE_HEADING_L2   -23.0    // Left: overshoot right past straight
@@ -105,7 +105,7 @@ const osThreadAttr_t defaultTask_attributes = {
 osThreadId_t communicateTaskHandle;
 const osThreadAttr_t communicateTask_attributes = {
   .name = "communicateTask",
-  .stack_size = 512 * 4,
+  .stack_size = 1024 * 4,
   .priority = (osPriority_t) osPriorityRealtime,
 };
 /* Definitions for motorTask */
@@ -197,8 +197,11 @@ osEventFlagsId_t task2EventFlags;
 #define EVT_RPI_RESPONSE    (1U << 0)  // communicateTask -> defaultTask: direction received
 #define EVT_START_CMD       (1U << 1)  // communicateTask -> defaultTask: start received
 #define EVT_BULL_CONFIRMED  (1U << 2)  // communicateTask -> defaultTask: bull confirmed
+#define EVT_BYPASS_DONE     (1U << 3)  // communicateTask -> defaultTask: bypass complete
 
 volatile uint8_t rpiDirection = 0;     // 'L' or 'R' from RPi
+volatile uint16_t recorded_dist_1 = 0; // ultrasonic dist at obstacle 1 (set by defaultTask)
+volatile uint16_t recorded_dist_2 = 0; // ultrasonic dist at obstacle 2 (set by defaultTask)
 volatile int cruise_mode = 0;         // 1 = constant-speed forward, 0 = normal PID
 volatile int smooth_maneuver = 0;     // 1 = smooth curve mode (cruise + manual servo)
 
@@ -1225,8 +1228,6 @@ void moveForwardUntilIRPassObstacle(uint8_t sensor_id, uint16_t near_cm, uint16_
 void bypassObstacle2(uint8_t direction) {
 	const uint16_t safe_turn_dist_cm  = 25;   // Min ultrasonic dist before turning 90
 	const uint16_t safe_turn_buffer   = 5;    // Extra reverse margin
-	const double   obs2_forward_past  = 25.0; // 10cm obstacle width + 15cm safety
-	const double   obs2_edge_extra    = 5.0;  // Extra clearance past detected edge
 	const uint16_t ir_edge_delta      = 20;   // Jump size to confirm "passed edge" (step 2)
 	const uint16_t ir_length_near     = 30;   // Phase A: detect obstacle beside us (step 7)
 	const uint16_t ir_length_far      = 50;   // Phase B: open space past obstacle (step 7)
@@ -1242,33 +1243,23 @@ void bypassObstacle2(uint8_t direction) {
 		osDelay(300);
 	}
 
+	// Capture distance to obstacle before turning (for dynamic forward clearance)
+	const double turn_displacement = 15.0;  // approx forward displacement from 2 turns
+	double captured_dist = (double)uDistance;
+	double forward_clearance = captured_dist - turn_displacement;
+
 	if (direction == 'R') {
 		// --- RIGHT side bypass ---
 		moveCarRight(90);    osDelay(100);   // Step 1: face right, LEFT IR faces obstacle
 		moveForwardUntilIRFar(2, ir_edge_delta);
 		osDelay(100);                        // Step 2: move right until LEFT IR edge passed
-		//moveCarStraight(obs2_edge_extra);  osDelay(00); // Step 3: extra clearance
-		moveCarLeft(90);     osDelay(100);   // Step 4: face forward
-		//moveCarStraight(obs2_forward_past);  osDelay(00); // Step 5: past obstacle width
-		moveCarLeft(90);     osDelay(100);   // Step 6: face left (center)
-		// Step 7: traverse length, RIGHT IR (sensor 1) faces obstacle
-		// If IR already detects obstacle, skip Phase A and just watch for far transition
-		if (irDistance1 < ir_length_near) {
-			moveForwardUntilIRFar(1, ir_edge_delta);
-		} else {
-			moveForwardUntilIRPassObstacle(1, ir_length_near, ir_length_far);
-		}
-		osDelay(100);
-		moveCarRight(90);    osDelay(100);   // Step 8: face forward
-	} else {
-		// --- LEFT side bypass (mirror) ---
-		moveCarLeft(90);     osDelay(100);   // Step 1: face left, RIGHT IR faces obstacle
-		moveForwardUntilIRFar(1, ir_edge_delta);
-		osDelay(100);                        // Step 2: move left until RIGHT IR edge passed
-		//moveCarStraight(obs2_edge_extra);  osDelay(100); // Step 3: extra clearance
-		moveCarRight(90);    osDelay(100);   // Step 4: face forward
-		//moveCarStraight(obs2_forward_past);  osDelay(100); // Step 5: past obstacle width
-		moveCarRight(90);    osDelay(100);   // Step 6: face right (center)
+		moveCarLeft(90);     osDelay(100);   // Step 3: face forward
+		// Step 4: move forward past obstacle width, using captured dist minus turn displacement
+		//if (forward_clearance > 0) {
+			//moveCarStraight(forward_clearance);
+			//osDelay(100);
+		//}
+		moveCarLeft(90);     osDelay(100);   // Step 5: face left (center)
 		// Step 7: traverse length, LEFT IR (sensor 2) faces obstacle
 		// If IR already detects obstacle, skip Phase A and just watch for far transition
 		if (irDistance2 < ir_length_near) {
@@ -1277,8 +1268,72 @@ void bypassObstacle2(uint8_t direction) {
 			moveForwardUntilIRPassObstacle(2, ir_length_near, ir_length_far);
 		}
 		osDelay(100);
-		moveCarLeft(90);     osDelay(100);   // Step 8: face forward
+		moveCarLeft(115);    osDelay(100);   // Step 8: face forward
+	} else {
+		// --- LEFT side bypass (mirror) ---
+		moveCarLeft(90);     osDelay(100);   // Step 1: face left, RIGHT IR faces obstacle
+		moveForwardUntilIRFar(1, ir_edge_delta);
+		osDelay(100);                        // Step 2: move left until RIGHT IR edge passed
+		moveCarRight(90);    osDelay(100);   // Step 3: face forward
+		// Step 4: move forward past obstacle width, using captured dist minus turn displacement
+		//if (forward_clearance > 0) {
+			//moveCarStraight(forward_clearance);
+			//osDelay(100);
+		//}
+		moveCarRight(90);    osDelay(100);   // Step 5: face right (center)
+		// Step 7: traverse length, RIGHT IR (sensor 1) faces obstacle
+		// If IR already detects obstacle, skip Phase A and just watch for far transition
+		if (irDistance1 < ir_length_near) {
+			moveForwardUntilIRFar(1, ir_edge_delta);
+		} else {
+			moveForwardUntilIRPassObstacle(1, ir_length_near, ir_length_far);
+		}
+		osDelay(100);
+		moveCarRight(115);     osDelay(100);   // Step 8: face forward
 	}
+}
+
+/* -------- Phase 4: Return to carpark -------- */
+
+void returnToCarpark(uint8_t direction) {
+	//const double extra_displacement = 20.0;  // 30cm crossing obs1 + 30cm obstacle widths
+	//const uint16_t ir_close_thresh  = 50;    // detect obstacle 1 beside us
+	//const double   turn_to_carpark  = 100.0; // turn angle toward carpark (tunable)
+	//const uint16_t park_stop_cm     = 10;    // ultrasonic stop distance in carpark
+
+	//total_angle = 0.0;
+	//target_angle = 0.0;
+
+	// Step 1: Move forward (facing backward = toward carpark)
+	//double return_dist = (double)recorded_dist_1 + (double)recorded_dist_2;
+
+
+
+	//moveCarStraight(-1 * return_dist);
+	moveForwardUntilUltrasonic(22);
+	osDelay(300);
+
+	/*if (direction == 'R') {
+		// Step 2: Turn toward center line
+		moveCarRight(90);    osDelay(300);
+		// Step 3: Move until LEFT IR detects obstacle 1
+		moveForwardUntilIRClose(2, ir_close_thresh);
+		osDelay(300);
+		// Step 4: Turn toward carpark
+		moveCarLeft(turn_to_carpark);  osDelay(300);
+	} else {
+		// Step 2: Turn toward center line
+		moveCarLeft(90);     osDelay(300);
+		// Step 3: Move until RIGHT IR detects obstacle 1
+		moveForwardUntilIRClose(1, ir_close_thresh);
+		osDelay(300);
+		// Step 4: Turn toward carpark
+		moveCarRight(turn_to_carpark);   osDelay(300);
+	}
+
+	// Step 5: Drive into carpark, stop at back wall
+	moveForwardUntilUltrasonic(park_stop_cm);
+	osDelay(300);*/
 }
 
 /* -------- Task 2: RPi communication helpers -------- */
@@ -1405,7 +1460,7 @@ void smoothBypassObstacle1Left(void) {
 	motor_set_pwm_left(0);
 	motor_set_pwm_right(0);
 	smooth_maneuver = 0;
-	osDelay(300);
+	osDelay(10);
 }
 
 void testSmoothBypassRight(uint16_t target_cm) {
@@ -1579,6 +1634,8 @@ static float calibrate_bias_z(IMU_Data* imu, int n, int delay_ms) {
 void StartDefaultTask(void *argument)
 {
   /* USER CODE BEGIN 5 */
+	//pwmVal_servo = SERVOLEFT;
+
 	pwmVal_servo = SERVOCENTER;
 
 	// ==========================================================
@@ -1675,15 +1732,24 @@ void StartDefaultTask(void *argument)
 //	// If we get here, CONF was received
 //	vTaskSuspend(NULL);
 
-	// --- TEST 9: Wait for START then drive + stop by ultrasonic ---
-	// Full Phase 1 test. Send "STRT\0" from RPi to begin.
-	// Car drives forward, stops at obstacle, sends IMG, waits for direction.
-//	osEventFlagsWait(task2EventFlags, EVT_START_CMD, osFlagsWaitAll, osWaitForever);
-//	osDelay(500);
-//	uint16_t rec = moveForwardUntilUltrasonic(25);
-//	osDelay(500);
-//	uint8_t d = requestImageDetection();
-//	vTaskSuspend(NULL);
+	// --- TEST 9: Full obstacle 1 + 2 with manual commands ---
+	// Send S to start. Car approaches obstacle 1, send W/E to bypass it.
+	// Car then approaches obstacle 2, send W/E again to bypass it.
+	// Bypasses run in communicateTask; defaultTask waits for EVT_BYPASS_DONE.
+	//moveCarStraight(50);
+	osEventFlagsWait(task2EventFlags, EVT_START_CMD, osFlagsWaitAll, osWaitForever);
+	osDelay(500);
+	recorded_dist_1 = uDistance;
+	osDelay(500);
+	requestImageDetection();
+	osEventFlagsWait(task2EventFlags, EVT_BYPASS_DONE, osFlagsWaitAll, osWaitForever);
+	osDelay(500);
+	recorded_dist_2 = uDistance;
+	osDelay(500);
+	requestImageDetection();
+	// communicate task runs bypassObstacle2 then returnToCarpark
+	osEventFlagsWait(task2EventFlags, EVT_BYPASS_DONE, osFlagsWaitAll, osWaitForever);
+	vTaskSuspend(NULL);
 
 	// --- TEST 10: Lane change right (obstacle 1 bypass) ---
 	// Hardcoded right lane-change: R90, fwd 20, L90, fwd 40, L90, fwd 20, R90.
@@ -1726,15 +1792,15 @@ void StartDefaultTask(void *argument)
 	// Place car ~25cm in front of obstacle 2. Send START to begin.
 	// Car bypasses on the right side using IR sensors.
 	//osEventFlagsWait(task2EventFlags, EVT_START_CMD, osFlagsWaitAll, osWaitForever);
-	osDelay(500);
-	bypassObstacle2('R');
-	vTaskSuspend(NULL);
+//	osDelay(500);
+//	bypassObstacle2('R');
+//	vTaskSuspend(NULL);
 
 	// --- TEST 18: Phase 3 bypass with hardcoded LEFT (no RPi needed) ---
 //	osEventFlagsWait(task2EventFlags, EVT_START_CMD, osFlagsWaitAll, osWaitForever);
-//	osDelay(500);
-//	bypassObstacle2('L');
-//	vTaskSuspend(NULL);
+	//osDelay(500);
+	//bypassObstacle2('L');
+	//vTaskSuspend(NULL);
 
 	// --- TEST 12: Full Task 2 routine ---
 	// Uncomment this block to run the complete 4-phase autonomous task.
@@ -1843,6 +1909,7 @@ void startCommunicateTask(void *argument)
 {
   /* USER CODE BEGIN startCommunicateTask */
 	char ack = 'A';
+	uint8_t obstacle1_done = 0;  // 0 = W/E does obstacle 1, 1 = W/E does obstacle 2
 
 	rxBuffer_working[0] = 'E';
 	rxBuffer_working[1] = 'M';
@@ -1872,18 +1939,42 @@ void startCommunicateTask(void *argument)
 
 		  switch (rxBuffer_working[0]) {
 		  // --- Task 2 commands (first byte only) ---
-		  case 'S':
+		  case 'Z':
 			  osEventFlagsSet(task2EventFlags, EVT_START_CMD);
 			  break;
 		  case 'W':
 			  rpiDirection = 'L';
 			  osEventFlagsSet(task2EventFlags, EVT_RPI_RESPONSE);
-			  testSmoothBypassLeft(30);
+			  if (!obstacle1_done) {
+				  testSmoothBypassLeft(30);
+				  if (uDistance <= 5) {
+				  					  moveCarStraight(-15.0);
+				  					  osDelay(10);
+				  				  }
+				  obstacle1_done = 1;
+			  } else {
+				  bypassObstacle2('L');
+				  pwmVal_servo = SERVOCENTER;
+				  returnToCarpark('L');
+			  }
+			  osEventFlagsSet(task2EventFlags, EVT_BYPASS_DONE);
 			  break;
 		  case 'E':
 			  rpiDirection = 'R';
 			  osEventFlagsSet(task2EventFlags, EVT_RPI_RESPONSE);
-			  testSmoothBypassRight(30);
+			  if (!obstacle1_done) {
+				  testSmoothBypassRight(30);
+				  if (uDistance <= 5) {
+				  					  moveCarStraight(-15.0);
+				  					  osDelay(10);
+				  				  }
+				  obstacle1_done = 1;
+			  } else {
+				  bypassObstacle2('R');
+				  pwmVal_servo = SERVOCENTER;
+				  returnToCarpark('R');
+			  }
+			  osEventFlagsSet(task2EventFlags, EVT_BYPASS_DONE);
 			  break;
 		  case 'C':
 			  osEventFlagsSet(task2EventFlags, EVT_BULL_CONFIRMED);
@@ -1908,7 +1999,7 @@ void startCommunicateTask(void *argument)
 				  if (rxBuffer_working[1] == 'B') magnitude *= -1;
 
 				  switch (rxBuffer_working[0]) {
-				  //case 'S': moveCarStraight(magnitude); flagDone = 1; break;
+				  case 'S': moveCarStraight(magnitude); flagDone = 1; break;
 				  case 'R': moveCarRight(magnitude); flagDone = 1; break;
 				  case 'L': moveCarLeft(magnitude); flagDone = 1; break;
 				  case 'U': moveCarStraight(uDistance + 8 - magnitude); flagDone = 1; break;
