@@ -84,8 +84,8 @@ class StreamListener:
             # Uncomment ONE of these methods if camera image is too dark:
             
             # Method 1: Simple brightness adjustment (fast)
-            # brightness = 30  # Increase value for brighter image (0-100)
-            # frame = cv2.convertScaleAbs(frame, alpha=1.0, beta=brightness)
+            brightness = 30  # Increase value for brighter image (0-100)
+            frame = cv2.convertScaleAbs(frame, alpha=1.0, beta=brightness)
             
             # Method 2: Histogram equalization (better contrast)
             # lab = cv2.cvtColor(frame, cv2.COLOR_BGR2LAB)
