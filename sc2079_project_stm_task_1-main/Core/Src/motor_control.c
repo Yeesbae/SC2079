@@ -213,18 +213,28 @@ static inline float turn_factor_from_duty(int duty){
 }
 
 int PID_Angle(double errord) {
-	float a = fabsf((float)errord);
+	int error = (int) errord; // TODO why
 
-	if (a < 1.0f) {
+	error = abs(error);
+//	temp2 = error;
+	if (error > 300) {
+		return 799;
+	} else if (error > 200) {
+		return 699;
+	} else if (error > 150) {
+		return 599;
+	} else if (error > 100) {
+		return 550;
+	} else if (error > 10) {
+		return 550;
+	} else if (error >= 1) {
+		return 500;
+	} else {
 		times_acceptable++;
 		return 0;
 	}
-
-	if (a > 30.0f) return 750;
-	else if (a > 20.0f) return 650;
-	else if (a > 10.0f) return 550;
-	else return 450;
 }
+
 
 //int PID_Angle(float error_angle_deg)
 //{

@@ -359,8 +359,8 @@ int main(void)
   uint8_t testMsg[] = "STM32 UART3 Ready!";
 
   // Transmit test message (will appear on PC/RPi terminal)
-  HAL_UART_Transmit(&huart3, testMsg, sizeof(testMsg) - 1, 100);
-  HAL_UART_Transmit(&huart3, (uint8_t*)"\r\n", 2, 100);
+  //HAL_UART_Transmit(&huart3, testMsg, sizeof(testMsg) - 1, 100);
+  //HAL_UART_Transmit(&huart3, (uint8_t*)"\r\n", 2, 100);
 
   // Display confirmation on OLED
   OLED_Clear();
@@ -1143,6 +1143,11 @@ void moveForwardUntilIRFar(uint8_t sensor_id, uint16_t delta_cm) {
 	// Stop when IR shows a large INCREASE between consecutive readings,
 	// meaning the obstacle has ended. The smaller reading must be < 35cm
 	// to ensure we're actually beside an obstacle before triggering.
+
+	// Early exit: if IR already reads far, no obstacle beside us (short obstacle case)
+	volatile uint16_t *ir_ptr = (sensor_id == 1) ? &irDistance1 : &irDistance2;
+	if (*ir_ptr >= 35) return;
+
 	total_angle = 0.0;
 	target_angle = 0.0;
 	pwmVal_servo = SERVOCENTER;
@@ -1151,7 +1156,6 @@ void moveForwardUntilIRFar(uint8_t sensor_id, uint16_t delta_cm) {
 	cruise_mode = 1;
 	e_brake = 0;
 
-	volatile uint16_t *ir_ptr = (sensor_id == 1) ? &irDistance1 : &irDistance2;
 	osDelay(200);
 
 	uint16_t prev_reading = *ir_ptr;
@@ -1194,15 +1198,15 @@ void moveForwardUntilIRPassObstacle(uint8_t sensor_id, uint16_t near_cm, uint16_
 
 	// Phase A: Drive until IR detects obstacle beside us (reading < near_cm)
 	int confirm = 0;
-	while (confirm < 3) {
-		osDelay(50);
+	while (confirm < 1) {
+		osDelay(10);
 		if (*ir_ptr < near_cm) confirm++; else confirm = 0;
 	}
 
 	// Phase B: Continue until IR shows open space (reading > far_cm = passed obstacle)
 	confirm = 0;
-	while (confirm < 3) {
-		osDelay(50);
+	while (confirm < 1) {
+		osDelay(10);
 		if (*ir_ptr > far_cm) confirm++; else confirm = 0;
 	}
 
@@ -1214,6 +1218,67 @@ void moveForwardUntilIRPassObstacle(uint8_t sensor_id, uint16_t near_cm, uint16_
 	motor_set_pwm_left(0);
 	motor_set_pwm_right(0);
 	osDelay(300);
+}
+
+/* -------- Phase 3: Obstacle 2 bypass (IR-driven) -------- */
+
+void bypassObstacle2(uint8_t direction) {
+	const uint16_t safe_turn_dist_cm  = 25;   // Min ultrasonic dist before turning 90
+	const uint16_t safe_turn_buffer   = 5;    // Extra reverse margin
+	const double   obs2_forward_past  = 25.0; // 10cm obstacle width + 15cm safety
+	const double   obs2_edge_extra    = 5.0;  // Extra clearance past detected edge
+	const uint16_t ir_edge_delta      = 20;   // Jump size to confirm "passed edge" (step 2)
+	const uint16_t ir_length_near     = 30;   // Phase A: detect obstacle beside us (step 7)
+	const uint16_t ir_length_far      = 50;   // Phase B: open space past obstacle (step 7)
+
+	// Reset gyro heading
+	total_angle = 0.0;
+	target_angle = 0.0;
+
+	// Step 0: Reverse if too close to obstacle 2
+	if (uDistance < safe_turn_dist_cm && uDistance > 3) {
+		double reverse_cm = (double)(safe_turn_dist_cm - uDistance + safe_turn_buffer);
+		moveCarStraight(-reverse_cm);
+		osDelay(300);
+	}
+
+	if (direction == 'R') {
+		// --- RIGHT side bypass ---
+		moveCarRight(90);    osDelay(100);   // Step 1: face right, LEFT IR faces obstacle
+		moveForwardUntilIRFar(2, ir_edge_delta);
+		osDelay(100);                        // Step 2: move right until LEFT IR edge passed
+		//moveCarStraight(obs2_edge_extra);  osDelay(00); // Step 3: extra clearance
+		moveCarLeft(90);     osDelay(100);   // Step 4: face forward
+		//moveCarStraight(obs2_forward_past);  osDelay(00); // Step 5: past obstacle width
+		moveCarLeft(90);     osDelay(100);   // Step 6: face left (center)
+		// Step 7: traverse length, RIGHT IR (sensor 1) faces obstacle
+		// If IR already detects obstacle, skip Phase A and just watch for far transition
+		if (irDistance1 < ir_length_near) {
+			moveForwardUntilIRFar(1, ir_edge_delta);
+		} else {
+			moveForwardUntilIRPassObstacle(1, ir_length_near, ir_length_far);
+		}
+		osDelay(100);
+		moveCarRight(90);    osDelay(100);   // Step 8: face forward
+	} else {
+		// --- LEFT side bypass (mirror) ---
+		moveCarLeft(90);     osDelay(100);   // Step 1: face left, RIGHT IR faces obstacle
+		moveForwardUntilIRFar(1, ir_edge_delta);
+		osDelay(100);                        // Step 2: move left until RIGHT IR edge passed
+		//moveCarStraight(obs2_edge_extra);  osDelay(100); // Step 3: extra clearance
+		moveCarRight(90);    osDelay(100);   // Step 4: face forward
+		//moveCarStraight(obs2_forward_past);  osDelay(100); // Step 5: past obstacle width
+		moveCarRight(90);    osDelay(100);   // Step 6: face right (center)
+		// Step 7: traverse length, LEFT IR (sensor 2) faces obstacle
+		// If IR already detects obstacle, skip Phase A and just watch for far transition
+		if (irDistance2 < ir_length_near) {
+			moveForwardUntilIRFar(2, ir_edge_delta);
+		} else {
+			moveForwardUntilIRPassObstacle(2, ir_length_near, ir_length_far);
+		}
+		osDelay(100);
+		moveCarLeft(90);     osDelay(100);   // Step 8: face forward
+	}
 }
 
 /* -------- Task 2: RPi communication helpers -------- */
@@ -1571,14 +1636,27 @@ void StartDefaultTask(void *argument)
 	// --- TEST 13: Smooth S-curve bypass (right) ---
 	// Place 10x10cm obstacle ahead. Car cruises forward, triggers smooth
 	// right bypass when ultrasonic < 25cm, curves around and stops facing forward.
-	osDelay(2000);
-	testSmoothBypassRight(30);
-	vTaskSuspend(NULL);
+//	osDelay(2000);
+//	testSmoothBypassRight(30);
+//	vTaskSuspend(NULL);
 
 	// --- TEST 14: Smooth S-curve bypass (left) ---
 	// Same as TEST 13 but bypasses on the left side.
-	//osDelay(2000);
-	//testSmoothBypassLeft(30);
+//	osDelay(2000);
+//	testSmoothBypassLeft(30);
+//	vTaskSuspend(NULL);
+
+	// --- TEST 15: Phase 1 with RPi integration ---
+	// Wait for START command from RPi, then cruise forward, stop at 80cm,
+	// request image detection, execute smooth bypass.
+	//osEventFlagsWait(task2EventFlags, EVT_START_CMD, osFlagsWaitAll, osWaitForever);
+	//osDelay(500);
+//
+	//moveForwardUntilUltrasonic(40);
+	//osDelay(300);
+//
+	//requestImageDetection();
+	// Bypass is executed in communicateTask when 'W'/'E' is received
 	//vTaskSuspend(NULL);
 
 	// --- TEST 7: RPi handshake - requestImageDetection ---
@@ -1633,121 +1711,123 @@ void StartDefaultTask(void *argument)
 //	moveCarLeft(90);     osDelay(300);
 //	vTaskSuspend(NULL);
 
+	// --- TEST 16: Phase 3 bypass obstacle 2 ---
+	// Place car ~25cm in front of obstacle 2. Send START from RPi,
+	// then send direction ('W' for left, 'E' for right).
+	// Car will reverse if too close, then do IR-driven U-shaped bypass.
+//	osEventFlagsWait(task2EventFlags, EVT_START_CMD, osFlagsWaitAll, osWaitForever);
+//	osDelay(500);
+//	uint8_t testDir = requestImageDetection();
+//	osDelay(500);
+//	bypassObstacle2(testDir);
+//	vTaskSuspend(NULL);
+
+	// --- TEST 17: Phase 3 bypass with hardcoded RIGHT (no RPi needed) ---
+	// Place car ~25cm in front of obstacle 2. Send START to begin.
+	// Car bypasses on the right side using IR sensors.
+	//osEventFlagsWait(task2EventFlags, EVT_START_CMD, osFlagsWaitAll, osWaitForever);
+	osDelay(500);
+	bypassObstacle2('R');
+	vTaskSuspend(NULL);
+
+	// --- TEST 18: Phase 3 bypass with hardcoded LEFT (no RPi needed) ---
+//	osEventFlagsWait(task2EventFlags, EVT_START_CMD, osFlagsWaitAll, osWaitForever);
+//	osDelay(500);
+//	bypassObstacle2('L');
+//	vTaskSuspend(NULL);
+
 	// --- TEST 12: Full Task 2 routine ---
 	// Uncomment this block to run the complete 4-phase autonomous task.
-	{
-	const uint16_t US_STOP_DIST_CM   = 25;
-	const double   LANE_OFFSET_CM    = 20.0;
-	const double   OBS1_SAFETY_CM    = 20.0;
-	const double   OBS2_SAFETY_CM    = 15.0;
-	const double   RETURN_EXTRA_CM   = 45.0;
-	const uint16_t IR_FAR_THRESH_CM  = 50;
-	const uint16_t IR_NEAR_THRESH_CM = 20;
-	const uint16_t PARK_STOP_CM      = 25;
-
-	uint16_t recorded_dist_1 = 0;
-	uint16_t recorded_dist_2 = 0;
-	uint8_t  direction_1 = 0;
-	uint8_t  direction_2 = 0;
-
-	osEventFlagsWait(task2EventFlags, EVT_START_CMD, osFlagsWaitAll, osWaitForever);
-	osDelay(500);
-  //uncomment to run full tasks
-  vTaskSuspend(NULL);
-	// PHASE 1
-	recorded_dist_1 = moveForwardUntilUltrasonic(US_STOP_DIST_CM);
-	osDelay(500);
-	direction_1 = requestImageDetection();
-	osDelay(500);
-
-	// PHASE 2
-	total_angle = 0.0;
-	target_angle = 0.0;
-
-	if (direction_1 == 'R') {
-		moveCarRight(90);    osDelay(300);
-		moveCarStraight(LANE_OFFSET_CM);  osDelay(300);
-		moveCarLeft(90);     osDelay(300);
-		moveCarStraight((double)recorded_dist_1 + OBS1_SAFETY_CM);  osDelay(300);
-		moveCarLeft(90);     osDelay(300);
-		moveCarStraight(LANE_OFFSET_CM);  osDelay(300);
-		moveCarRight(90);    osDelay(300);
-	} else {
-		moveCarLeft(90);     osDelay(300);
-		moveCarStraight(LANE_OFFSET_CM);  osDelay(300);
-		moveCarRight(90);    osDelay(300);
-		moveCarStraight((double)recorded_dist_1 + OBS1_SAFETY_CM);  osDelay(300);
-		moveCarRight(90);    osDelay(300);
-		moveCarStraight(LANE_OFFSET_CM);  osDelay(300);
-		moveCarLeft(90);     osDelay(300);
-	}
-
-	recorded_dist_2 = moveForwardUntilUltrasonic(US_STOP_DIST_CM);
-	osDelay(500);
-	direction_2 = requestImageDetection();
-	osDelay(500);
-
-	// PHASE 3
-	total_angle = 0.0;
-	target_angle = 0.0;
-
-	if (direction_2 == 'R') {
-		moveCarRight(90);    osDelay(300);
-		moveCarStraight(LANE_OFFSET_CM);  osDelay(300);
-		moveCarLeft(90);     osDelay(300);
-		moveForwardUntilIRPassObstacle(2, IR_NEAR_THRESH_CM, IR_FAR_THRESH_CM);
-		osDelay(300);
-		moveCarStraight(OBS2_SAFETY_CM);  osDelay(300);
-		moveCarLeft(90);     osDelay(300);
-		moveCarStraight(LANE_OFFSET_CM);  osDelay(300);
-		moveCarRight(90);    osDelay(300);
-	} else {
-		moveCarLeft(90);     osDelay(300);
-		moveCarStraight(LANE_OFFSET_CM);  osDelay(300);
-		moveCarRight(90);    osDelay(300);
-		moveForwardUntilIRPassObstacle(1, IR_NEAR_THRESH_CM, IR_FAR_THRESH_CM);
-		osDelay(300);
-		moveCarStraight(OBS2_SAFETY_CM);  osDelay(300);
-		moveCarRight(90);    osDelay(300);
-		moveCarStraight(LANE_OFFSET_CM);  osDelay(300);
-		moveCarLeft(90);     osDelay(300);
-	}
-
-	// PHASE 4
-	total_angle = 0.0;
-	target_angle = 0.0;
-
-	if (direction_2 == 'R') {
-		moveCarLeft(90);     osDelay(300);
-		moveForwardUntilIRPassObstacle(2, IR_NEAR_THRESH_CM, IR_FAR_THRESH_CM);
-		osDelay(300);
-		moveCarLeft(90);     osDelay(300);
-		moveCarStraight((double)recorded_dist_1 + (double)recorded_dist_2 + RETURN_EXTRA_CM);
-		osDelay(300);
-		moveCarLeft(90);     osDelay(300);
-		moveForwardUntilIRClose(2, IR_NEAR_THRESH_CM);
-		osDelay(300);
-		moveCarRight(90);    osDelay(300);
-	} else {
-		moveCarRight(90);    osDelay(300);
-		moveForwardUntilIRPassObstacle(1, IR_NEAR_THRESH_CM, IR_FAR_THRESH_CM);
-		osDelay(300);
-		moveCarRight(90);    osDelay(300);
-		moveCarStraight((double)recorded_dist_1 + (double)recorded_dist_2 + RETURN_EXTRA_CM);
-		osDelay(300);
-		moveCarRight(90);    osDelay(300);
-		moveForwardUntilIRClose(1, IR_NEAR_THRESH_CM);
-		osDelay(300);
-		moveCarLeft(90);     osDelay(300);
-	}
-
-	requestBullConfirmation();
-	osDelay(500);
-	moveForwardUntilUltrasonic(PARK_STOP_CM);
-	sendTaskComplete();
-	}
-
-	vTaskSuspend(NULL);
+//	{
+//	const uint16_t US_STOP_DIST_CM   = 25;
+//	const double   LANE_OFFSET_CM    = 20.0;
+//	const double   OBS1_SAFETY_CM    = 20.0;
+//	const double   OBS2_SAFETY_CM    = 15.0;
+//	const double   RETURN_EXTRA_CM   = 45.0;
+//	const uint16_t IR_FAR_THRESH_CM  = 50;
+//	const uint16_t IR_NEAR_THRESH_CM = 20;
+//	const uint16_t PARK_STOP_CM      = 25;
+//
+//	uint16_t recorded_dist_1 = 0;
+//	uint16_t recorded_dist_2 = 0;
+//	uint8_t  direction_1 = 0;
+//	uint8_t  direction_2 = 0;
+//
+//	osEventFlagsWait(task2EventFlags, EVT_START_CMD, osFlagsWaitAll, osWaitForever);
+//	osDelay(500);
+//  //uncomment to run full tasks
+//  vTaskSuspend(NULL);
+//	// PHASE 1
+//	recorded_dist_1 = moveForwardUntilUltrasonic(US_STOP_DIST_CM);
+//	osDelay(500);
+//	direction_1 = requestImageDetection();
+//	osDelay(500);
+//
+//	// PHASE 2
+//	total_angle = 0.0;
+//	target_angle = 0.0;
+//
+//	if (direction_1 == 'R') {
+//		moveCarRight(90);    osDelay(300);
+//		moveCarStraight(LANE_OFFSET_CM);  osDelay(300);
+//		moveCarLeft(90);     osDelay(300);
+//		moveCarStraight((double)recorded_dist_1 + OBS1_SAFETY_CM);  osDelay(300);
+//		moveCarLeft(90);     osDelay(300);
+//		moveCarStraight(LANE_OFFSET_CM);  osDelay(300);
+//		moveCarRight(90);    osDelay(300);
+//	} else {
+//		moveCarLeft(90);     osDelay(300);
+//		moveCarStraight(LANE_OFFSET_CM);  osDelay(300);
+//		moveCarRight(90);    osDelay(300);
+//		moveCarStraight((double)recorded_dist_1 + OBS1_SAFETY_CM);  osDelay(300);
+//		moveCarRight(90);    osDelay(300);
+//		moveCarStraight(LANE_OFFSET_CM);  osDelay(300);
+//		moveCarLeft(90);     osDelay(300);
+//	}
+//
+//	recorded_dist_2 = moveForwardUntilUltrasonic(US_STOP_DIST_CM);
+//	osDelay(500);
+//	direction_2 = requestImageDetection();
+//	osDelay(500);
+//
+//	// PHASE 3
+//	bypassObstacle2(direction_2);
+//
+//	// PHASE 4
+//	total_angle = 0.0;
+//	target_angle = 0.0;
+//
+//	if (direction_2 == 'R') {
+//		moveCarLeft(90);     osDelay(300);
+//		moveForwardUntilIRPassObstacle(2, IR_NEAR_THRESH_CM, IR_FAR_THRESH_CM);
+//		osDelay(300);
+//		moveCarLeft(90);     osDelay(300);
+//		moveCarStraight((double)recorded_dist_1 + (double)recorded_dist_2 + RETURN_EXTRA_CM);
+//		osDelay(300);
+//		moveCarLeft(90);     osDelay(300);
+//		moveForwardUntilIRClose(2, IR_NEAR_THRESH_CM);
+//		osDelay(300);
+//		moveCarRight(90);    osDelay(300);
+//	} else {
+//		moveCarRight(90);    osDelay(300);
+//		moveForwardUntilIRPassObstacle(1, IR_NEAR_THRESH_CM, IR_FAR_THRESH_CM);
+//		osDelay(300);
+//		moveCarRight(90);    osDelay(300);
+//		moveCarStraight((double)recorded_dist_1 + (double)recorded_dist_2 + RETURN_EXTRA_CM);
+//		osDelay(300);
+//		moveCarRight(90);    osDelay(300);
+//		moveForwardUntilIRClose(1, IR_NEAR_THRESH_CM);
+//		osDelay(300);
+//		moveCarLeft(90);     osDelay(300);
+//	}
+//
+//	requestBullConfirmation();
+//	osDelay(500);
+//	moveForwardUntilUltrasonic(PARK_STOP_CM);
+//	sendTaskComplete();
+//	}
+//
+//	vTaskSuspend(NULL);
 
   /* USER CODE END 5 */
 }
@@ -1792,16 +1872,18 @@ void startCommunicateTask(void *argument)
 
 		  switch (rxBuffer_working[0]) {
 		  // --- Task 2 commands (first byte only) ---
-		  case 'T':
+		  case 'S':
 			  osEventFlagsSet(task2EventFlags, EVT_START_CMD);
 			  break;
 		  case 'W':
 			  rpiDirection = 'L';
 			  osEventFlagsSet(task2EventFlags, EVT_RPI_RESPONSE);
+			  testSmoothBypassLeft(30);
 			  break;
 		  case 'E':
 			  rpiDirection = 'R';
 			  osEventFlagsSet(task2EventFlags, EVT_RPI_RESPONSE);
+			  testSmoothBypassRight(30);
 			  break;
 		  case 'C':
 			  osEventFlagsSet(task2EventFlags, EVT_BULL_CONFIRMED);
@@ -1826,7 +1908,7 @@ void startCommunicateTask(void *argument)
 				  if (rxBuffer_working[1] == 'B') magnitude *= -1;
 
 				  switch (rxBuffer_working[0]) {
-				  case 'S': moveCarStraight(magnitude); flagDone = 1; break;
+				  //case 'S': moveCarStraight(magnitude); flagDone = 1; break;
 				  case 'R': moveCarRight(magnitude); flagDone = 1; break;
 				  case 'L': moveCarLeft(magnitude); flagDone = 1; break;
 				  case 'U': moveCarStraight(uDistance + 8 - magnitude); flagDone = 1; break;
@@ -2155,7 +2237,7 @@ void startOLEDTask(void *argument)
         char debug[80];
         snprintf(debug, sizeof(debug), "HB C:%lu M:%lu E:%lu G:%lu U:%lu\r\n",
                  cnt_communicate, cnt_motor, cnt_encoder, cnt_gyro, cnt_ultrasonic);
-        HAL_UART_Transmit(&huart3, (uint8_t*)debug, strlen(debug), 50);
+        //HAL_UART_Transmit(&huart3, (uint8_t*)debug, strlen(debug), 50);
     }
 
     OLED_Refresh_Gram();
