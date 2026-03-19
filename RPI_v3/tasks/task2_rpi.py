@@ -1,9 +1,9 @@
 """
 Task 2 RPi Implementation — Fastest Car
 
-Protocol (all RPi→STM32 messages are 5 bytes, null-padded):
-  RPi → STM32:  STRT\0, LEFT\0, RGHT\0, CONF\0
-  STM32 → RPi:  IMG\r\n, BULL\n, FIN\r\n
+Protocol (single-character commands, null-padded to 5 bytes):
+  RPi → STM32:  STRT\0, W\0\0\0\0, E\0\0\0\0, CONF\0
+  STM32 → RPi:  I (image request), B (bull's-eye request), F (finish)
 
 Flow:
   1. Android sends START via Bluetooth → RPi
@@ -45,12 +45,15 @@ class Task2RPI:
         # Image class IDs from the model
         self.LEFT_ARROW_ID = "39"
         self.RIGHT_ARROW_ID = "38"
+        self.BULLSEYE_ID = "41"
 
         # ========== Task 2 Protocol Commands (RPi → STM32) ==========
         self.CMD_START   = "STRT"   # Begin Task 2 (padded to STRT\0)
-        self.CMD_LEFT    = "LEFT"   # Arrow result: go left (LEFT\0)
-        self.CMD_RIGHT   = "RGHT"   # Arrow result: go right (RGHT\0)
+        self.CMD_LEFT    = "W"      # Arrow result: go left
+        self.CMD_RIGHT   = "E"      # Arrow result: go right
         self.CMD_CONFIRM = "CONF"   # Bull's-eye confirmed (CONF\0)
+        self.CMD_REVERSE = "SB020"  # Reverse 20cm (Task 1 format, STM32 ACKs with 'A')
+        self.IMG_RETRY_MAX = 2      # Max retries before giving up on an obstacle
         # =============================================================
 
         # Event: Android sends START via BT → RPi forwards to STM32
@@ -108,6 +111,9 @@ class Task2RPI:
             print("Task2 RPi initialized successfully")
         except Exception as e:
             print(f"Initialization failed: {e}")
+            import traceback
+            traceback.print_exc()
+            raise
 
     def stream_start(self):
         """Start UDP video stream server."""
@@ -184,42 +190,72 @@ class Task2RPI:
     #  IMG handler: capture photo → detect arrow → send LEFT or RGHT
     # ------------------------------------------------------------------ #
     def handle_img_request(self) -> None:
-        """STM32 stopped at obstacle and needs arrow direction."""
-        print("[Task2] IMG received – requesting image recognition from PC")
+        """
+        STM32 stopped at obstacle and needs arrow direction.
+        If detection fails (NONE), reverse slightly and wait for STM32
+        to send IMG again, then retry. Retries up to IMG_RETRY_MAX times.
+        """
+        for attempt in range(1, self.IMG_RETRY_MAX + 1):
+            print(f"[Task2] IMG attempt {attempt}/{self.IMG_RETRY_MAX} – requesting arrow recognition from PC")
 
-        self.recognition_event.clear()
-        self.recognition_result = None
+            self.recognition_event.clear()
+            self.recognition_result = None
 
-        # Tell PC to capture / recognise
-        self.pc.send("CAPTURE")
+            # Tell PC to capture arrows only (PC filters out bullseye)
+            self.pc.send("CAPTURE")
 
-        # Wait for pc_receive_loop to set the result
-        got_result = self.recognition_event.wait(timeout=15.0)
+            # Wait for pc_receive_loop to set the result
+            got_result = self.recognition_event.wait(timeout=15.0)
 
-        if got_result and self.recognition_result is not None:
-            print(f"[Task2] Sending {self.recognition_result} to STM32")
-            self.stm.send(self.recognition_result)
-            # Tell PC this obstacle is done so it increments its counter
-            self.pc.send("SEEN")
-        else:
-            print("[Task2] No valid arrow detection – not sending direction")
+            if got_result and self.recognition_result is not None:
+                print(f"[Task2] Sending {self.recognition_result} to STM32")
+                self.stm.send(self.recognition_result)
+                # Tell PC this obstacle is done so it increments its counter
+                self.pc.send("SEEN")
+                return  # Success
+
+            # Detection failed — reverse and let STM32 resend IMG
+            if attempt < self.IMG_RETRY_MAX:
+                print(f"[Task2] No arrow detected – reversing ({self.CMD_REVERSE}) before retry")
+                self.stm.send(self.CMD_REVERSE)
+                # Wait for Task 1-style ACK from STM32 (reverse uses 'A' ack)
+                ack = self.stm.receive(timeout=10.0)
+                if ack:
+                    print(f"[Task2] Reverse ACK: {ack}")
+                else:
+                    print("[Task2] No ACK for reverse command")
+
+                # Flush any stale data before waiting for next IMG
+                self.stm.flush_input()
+
+                # Wait for STM32 to re-approach and send IMG again
+                print("[Task2] Waiting for STM32 to send IMG again...")
+                msg = self.stm.receive_task2_message(timeout=30.0)
+                if msg != "IMG":
+                    print(f"[Task2] Expected IMG but got {msg} – aborting retry")
+                    return
+            else:
+                print(f"[Task2] All {self.IMG_RETRY_MAX} attempts failed – no arrow detected")
 
     # ------------------------------------------------------------------ #
     #  BULL handler: confirm bull's-eye → send CONF
     # ------------------------------------------------------------------ #
     def handle_bull_request(self) -> None:
         """STM32 facing carpark and needs bull's-eye confirmation."""
-        print("[Task2] BULL received – confirming bull's-eye")
+        print("[Task2] BULL received – requesting bullseye-only recognition from PC")
 
-        # Capture an image for verification (optional: add actual detection)
         self.recognition_event.clear()
         self.recognition_result = None
-        self.pc.send("CAPTURE")
-        self.recognition_event.wait(timeout=10.0)
+        # Tell PC to capture bullseye only (PC filters out arrows)
+        self.pc.send("CAPTURE_BULL")
+        got_result = self.recognition_event.wait(timeout=10.0)
 
-        # Always confirm for now (STM32 expects CONF to proceed)
-        print(f"[Task2] Sending {self.CMD_CONFIRM} to STM32")
-        self.stm.send(self.CMD_CONFIRM)
+        if got_result and self.recognition_result == "BULL":
+            print("[Task2] Bullseye detected – sending 'yes' to STM32")
+            self.stm.send("yes")
+        else:
+            print(f"[Task2] Bullseye not detected – sending {self.CMD_CONFIRM} to STM32 anyway")
+            self.stm.send(self.CMD_CONFIRM)
 
     # ------------------------------------------------------------------ #
     #  FIN handler: task complete
@@ -239,7 +275,7 @@ class Task2RPI:
         """
         Persistent thread that reads all messages from PC.
         When a recognition result arrives it sets recognition_result
-        to the protocol command ("LEFT" or "RGHT") and signals
+        to the protocol command ("W", "E", or "BULL") and signals
         recognition_event so the STM32 thread can proceed.
         """
         print("[Task2] PC receive thread started")
@@ -271,6 +307,9 @@ class Task2RPI:
                         elif object_id == self.RIGHT_ARROW_ID:
                             print("[Task2] Detected RIGHT arrow")
                             self.recognition_result = self.CMD_RIGHT
+                        elif object_id == self.BULLSEYE_ID:
+                            print("[Task2] Detected BULLSEYE")
+                            self.recognition_result = "BULL"
 
                     self.recognition_event.set()
 

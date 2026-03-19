@@ -49,10 +49,12 @@ class Task2PC:
         # ========== Modify as needed: adjust left/right arrow IDs for your model ==========
         self.LEFT_ARROW_ID = "39"
         self.RIGHT_ARROW_ID = "38"
+        self.BULLSEYE_ID = "41"
         # =====================================================
 
         # Gate recognition results behind CAPTURE command from RPi
         self.capture_requested = False
+        self.capture_mode = "arrow"  # "arrow" or "bull" — controls which classes to accept
 
         # Lock protects capture_requested and detections (written by both
         # the stream thread via on_result and the receive thread via pc_receive)
@@ -61,7 +63,9 @@ class Task2PC:
         # ========== Voting window settings ==========
         # Collect detections over VOTE_WINDOW frames, then pick majority vote
         self.VOTE_WINDOW = 15            # Number of frames to collect before deciding
+        self.VOTE_TIMEOUT = 10.0         # Max seconds to wait for detections before giving up
         self.detections = []              # List of (img_id, conf_level, frame, result) tuples
+        self.capture_start_time = None   # Timestamp when CAPTURE was requested
         # ============================================
 
     def start(self):
@@ -88,7 +92,14 @@ class Task2PC:
         Recognition result callback.
         Collects detections over a voting window, then picks the majority
         vote to avoid sending a wrong result from a single bad frame.
+        If the vote timeout expires, sends the best result so far or NONE.
+
+        Filtering by capture_mode:
+          - "arrow": only accept LEFT_ARROW_ID / RIGHT_ARROW_ID
+          - "bull":  only accept BULLSEYE_ID
         """
+        import time as _time
+
         with self._lock:
             if not self.capture_requested:
                 return
@@ -97,8 +108,15 @@ class Task2PC:
                 conf_level = result.boxes[0].conf.item()
                 img_id = result.names[int(result.boxes[0].cls[0].item())]
 
-                # Only collect left/right arrows
-                if img_id in [self.LEFT_ARROW_ID, self.RIGHT_ARROW_ID]:
+                # Filter based on capture mode
+                if self.capture_mode == "arrow":
+                    accept = img_id in [self.LEFT_ARROW_ID, self.RIGHT_ARROW_ID]
+                elif self.capture_mode == "bull":
+                    accept = (img_id == self.BULLSEYE_ID)
+                else:
+                    accept = False
+
+                if accept:
                     self.detections.append((img_id, conf_level, frame, result))
                     print(f"[Vote] Collected {len(self.detections)}/{self.VOTE_WINDOW}: "
                           f"{img_id} ({conf_level:.2f})")
@@ -106,6 +124,18 @@ class Task2PC:
             # Once we have enough detections, pick the winner
             if len(self.detections) >= self.VOTE_WINDOW:
                 self._resolve_vote()
+                return
+
+            # Timeout: send best result so far, or NONE if nothing detected
+            if self.capture_start_time and (_time.time() - self.capture_start_time) >= self.VOTE_TIMEOUT:
+                if len(self.detections) > 0:
+                    print(f"[Vote] Timeout reached with {len(self.detections)}/{self.VOTE_WINDOW} detections — resolving")
+                    self._resolve_vote()
+                else:
+                    print("[Vote] Timeout reached with 0 detections — sending NONE")
+                    self.capture_requested = False
+                    self.capture_start_time = None
+                    self.pc_client.send("NONE")
 
     def _resolve_vote(self):
         """Pick the majority-voted image ID and send it."""
@@ -113,6 +143,7 @@ class Task2PC:
         from collections import Counter
 
         self.capture_requested = False  # consume the capture request
+        self.capture_start_time = None  # reset timeout
 
         # Count votes per image ID
         votes = Counter(d[0] for d in self.detections)
@@ -194,12 +225,26 @@ class Task2PC:
                     break
                 print("Message received from RPi:", message_rcv)
 
-                if "CAPTURE" in message_rcv:
-                    # RPi requests recognition — start collecting detections
-                    print("CAPTURE requested — enabling recognition")
+                if "CAPTURE_BULL" in message_rcv:
+                    # RPi requests bull's-eye recognition
+                    import time as _time
+                    print("CAPTURE_BULL requested — enabling bullseye-only recognition")
                     with self._lock:
-                        self.detections = []  # clear any stale detections
+                        self.detections = []
                         self.capture_requested = True
+                        self.capture_mode = "bull"
+                        self.capture_start_time = _time.time()
+                        self.obstacle_img_id = None
+
+                elif "CAPTURE" in message_rcv:
+                    # RPi requests arrow recognition
+                    import time as _time
+                    print("CAPTURE requested — enabling arrow-only recognition")
+                    with self._lock:
+                        self.detections = []
+                        self.capture_requested = True
+                        self.capture_mode = "arrow"
+                        self.capture_start_time = _time.time()
                         self.obstacle_img_id = None
 
                 elif "SEEN" in message_rcv:
