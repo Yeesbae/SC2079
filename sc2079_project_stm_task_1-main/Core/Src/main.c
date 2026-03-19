@@ -57,10 +57,10 @@
 #define TURN_RIGHT_INNER_RATIO 0.50f   // inner/outer wheel ratio for right turns (lower = tighter)
 
 // --- Smooth bypass tuning for obstacle 1 (10x10cm) ---
-#define BYPASS_CRUISE_HEADING_R1   -30.0   // Right: turn right until this heading
+#define BYPASS_CRUISE_HEADING_R1   -25.0   // Right: turn right until this heading
 #define BYPASS_CRUISE_HEADING_R2    10.0    // Right: overshoot left past straight
 #define BYPASS_CRUISE_HEADING_R3    1.0    // Right: straighten threshold
-#define BYPASS_CRUISE_HEADING_L1    120.0   // Left: turn left until this heading
+#define BYPASS_CRUISE_HEADING_L1    0.0   // Left: turn left until this heading
 #define BYPASS_CRUISE_HEADING_L2   -10.0    // Left: overshoot right past straight
 #define BYPASS_CRUISE_HEADING_L3   -1.0    // Left: straighten threshold
 #define BYPASS_SERVO_R             90     // Moderate right for initial dodge
@@ -1258,7 +1258,7 @@ void smoothBypassObstacle1Right(void) {
 
 	// Segment 2: Moderate LEFT to curve back toward center
 	// Heading increases, passes through 0 to slight positive overshoot
-	bypass_inner_ratio = 0.2f;
+	bypass_inner_ratio = 0.5f;
 	pwmVal_servo = BYPASS_SERVO_L;
 	while (total_angle < BYPASS_CRUISE_HEADING_R2
 	       && (HAL_GetTick() - t0) < BYPASS_TIMEOUT_MS) {
@@ -1266,7 +1266,7 @@ void smoothBypassObstacle1Right(void) {
 	};
 
 	// Segment 3: Slight RIGHT to straighten heading to ~0
-	bypass_inner_ratio = 0.f;
+	bypass_inner_ratio = 0.5f;
 	pwmVal_servo = BYPASS_SERVO_SLIGHT_R;
 	while (total_angle > BYPASS_CRUISE_HEADING_R3
 	       && (HAL_GetTick() - t0) < BYPASS_TIMEOUT_MS) {
@@ -1297,8 +1297,10 @@ void smoothBypassObstacle1Left(void) {
 
 	uint32_t t0 = HAL_GetTick();
 
+
 	// Segment 1: Moderate LEFT to dodge obstacle
 	// Heading increases (goes positive) during left turn
+	bypass_inner_ratio = 0.3f;
 	pwmVal_servo = BYPASS_SERVO_L;
 	while (total_angle < BYPASS_CRUISE_HEADING_L1
 	       && (HAL_GetTick() - t0) < BYPASS_TIMEOUT_MS) {
@@ -1307,6 +1309,7 @@ void smoothBypassObstacle1Left(void) {
 
 	// Segment 2: Moderate RIGHT to curve back toward center
 	// Heading decreases, passes through 0 to slight negative overshoot
+	bypass_inner_ratio = 0.3f;
 	pwmVal_servo = BYPASS_SERVO_R;
 	while (total_angle > BYPASS_CRUISE_HEADING_L2
 	       && (HAL_GetTick() - t0) < BYPASS_TIMEOUT_MS) {
@@ -1314,6 +1317,7 @@ void smoothBypassObstacle1Left(void) {
 	}
 
 	// Segment 3: Slight LEFT to straighten heading to ~0
+	bypass_inner_ratio = 0.5f;
 	pwmVal_servo = BYPASS_SERVO_SLIGHT_L;
 	while (total_angle < BYPASS_CRUISE_HEADING_L3
 	       && (HAL_GetTick() - t0) < BYPASS_TIMEOUT_MS) {
@@ -1561,6 +1565,12 @@ void StartDefaultTask(void *argument)
 	osDelay(2000);
 	testSmoothBypassRight(30);
 	vTaskSuspend(NULL);
+
+	// --- TEST 14: Smooth S-curve bypass (left) ---
+	// Same as TEST 13 but bypasses on the left side.
+	//osDelay(2000);
+	//testSmoothBypassLeft(30);
+	//vTaskSuspend(NULL);
 
 	// --- TEST 7: RPi handshake - requestImageDetection ---
 	// Sends "IMG\r\n" to RPi, waits for "LEFT\0" or "RGHT\0".
@@ -1910,16 +1920,16 @@ void startMotorTask(void *argument)
 			temp2 = 2;
 			if (smooth_maneuver && cruise_mode) {
 				// Differential PWM for tighter turns during smooth bypass
-				int outer = CRUISE_PWM;
+				int outer = 550;
 				int inner = (int)(CRUISE_PWM * bypass_inner_ratio);
 				if (pwmVal_servo > SERVOCENTER) {
-					// Right turn: slow right (inner) wheel
-					motor_set_pwm_left(outer);
-					motor_set_pwm_right(inner);
-				} else if (pwmVal_servo < SERVOCENTER) {
-					// Left turn: slow left (inner) wheel
+					// Right turn: slow left (inner) wheel
 					motor_set_pwm_right(outer);
 					motor_set_pwm_left(inner);
+				} else if (pwmVal_servo < SERVOCENTER) {
+					// Left turn: slow right (inner) wheel
+					motor_set_pwm_left(outer);
+					motor_set_pwm_right(inner);
 				} else {
 					motor_set_pwm_left(outer);
 					motor_set_pwm_right(outer);
