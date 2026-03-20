@@ -62,8 +62,8 @@ class Task2PC:
 
         # ========== Voting window settings ==========
         # Collect detections over VOTE_WINDOW frames, then pick majority vote
-        self.VOTE_WINDOW = 15            # Number of frames to collect before deciding
-        self.VOTE_TIMEOUT = 10.0         # Max seconds to wait for detections before giving up
+        self.VOTE_WINDOW = 9            # Number of frames to collect before deciding
+        self.VOTE_TIMEOUT = 7.0         # Max seconds to wait for detections before giving up
         self.detections = []              # List of (img_id, conf_level, frame, result) tuples
         self.capture_start_time = None   # Timestamp when CAPTURE was requested
         # ============================================

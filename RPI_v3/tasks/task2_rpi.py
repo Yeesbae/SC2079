@@ -205,7 +205,7 @@ class Task2RPI:
             self.pc.send("CAPTURE")
 
             # Wait for pc_receive_loop to set the result
-            got_result = self.recognition_event.wait(timeout=15.0)
+            got_result = self.recognition_event.wait(timeout=9.0)
 
             if got_result and self.recognition_result is not None:
                 print(f"[Task2] Sending {self.recognition_result} to STM32")
