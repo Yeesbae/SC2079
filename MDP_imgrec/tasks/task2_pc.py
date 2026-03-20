@@ -175,19 +175,30 @@ class Task2PC:
         cv2.imwrite(save_path, annotated_frame)
         print(f"Saved detected image to {save_path}")
 
-        # Add annotated frame (with bounding boxes) to stitching dict
-        add_to_stitching_dict(
-            self.stitching_dict,
-            self.obstacle_id,
-            best_conf,
-            annotated_frame,
-        )
-        self.stitching_arr.append(self.obstacle_id)
+        # Add annotated frame to stitching dict (skip bullseye — not an obstacle)
+        if self.capture_mode != "bull":
+            add_to_stitching_dict(
+                self.stitching_dict,
+                self.obstacle_id,
+                best_conf,
+                annotated_frame,
+            )
+            self.stitching_arr.append(self.obstacle_id)
 
         # Send result to RPi
         message_content = f"{best_conf},{winner_id}"
         print("Sending:", message_content)
         self.pc_client.send(message_content)
+
+        # Stitch images progressively after each detection
+        if self.capture_mode != "bull" and self.stitching_arr:
+            print(f"[Stitch] Updating collage with {len(self.stitching_arr)} images so far")
+            stitch_images(
+                self.stitching_arr,
+                self.stitching_dict,
+                filename=self.filename,
+                blocking=False,
+            )
 
         # Clear detections for next capture
         self.detections = []
@@ -254,11 +265,12 @@ class Task2PC:
 
                 elif "STITCH" in message_rcv or "FIN" in message_rcv:
                     if self.stitching_arr:
-                        print(f"Generating tiled collage for obstacles: {self.stitching_arr}")
+                        print(f"Generating final collage for obstacles: {self.stitching_arr}")
                         stitch_images(
                             self.stitching_arr,
                             self.stitching_dict,
                             filename=self.filename,
+                            blocking=True,
                         )
                     else:
                         print("No images to stitch")

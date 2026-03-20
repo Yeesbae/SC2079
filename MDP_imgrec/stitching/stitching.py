@@ -29,7 +29,7 @@ def add_to_stitching_dict(stitching_dict, img_id, conf_level, frame):
         print(f"Saw {img_id} with confidence level {conf_level}.")
 
 
-def stitch_images(id_arr, stitching_dict, filename="task"):
+def stitch_images(id_arr, stitching_dict, filename="task", blocking=True):
     """
     Stitch recognized images into a tiled collage with labels.
     
@@ -41,6 +41,7 @@ def stitch_images(id_arr, stitching_dict, filename="task"):
         id_arr: Array of obstacle IDs, stitched in order
         stitching_dict: Dictionary storing images {obstacle_id: (confidence, frame)}
         filename: Output file name prefix
+        blocking: If True, wait for keypress after display. If False, update window and return.
     """
     import math
 
@@ -96,5 +97,8 @@ def stitch_images(id_arr, stitching_dict, filename="task"):
     window_name = "Task 2 — Recognized Images"
     cv2.imshow(window_name, canvas)
     cv2.setWindowProperty(window_name, cv2.WND_PROP_TOPMOST, 1)
-    cv2.waitKey(0)
-    cv2.destroyAllWindows()
+    if blocking:
+        cv2.waitKey(0)
+        cv2.destroyAllWindows()
+    else:
+        cv2.waitKey(1)
