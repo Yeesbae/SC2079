@@ -48,7 +48,7 @@ class Task2RPI:
         self.BULLSEYE_ID = "41"
 
         # ========== Task 2 Protocol Commands (RPi → STM32) ==========
-        self.CMD_START   = "STRT"   # Begin Task 2 (padded to STRT\0)
+        self.CMD_START   = "Z"   # Begin Task 2 (padded to STRT\0)
         self.CMD_LEFT    = "W"      # Arrow result: go left
         self.CMD_RIGHT   = "E"      # Arrow result: go right
         self.CMD_CONFIRM = "CONF"   # Bull's-eye confirmed (CONF\0)

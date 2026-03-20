@@ -190,16 +190,6 @@ class Task2PC:
         print("Sending:", message_content)
         self.pc_client.send(message_content)
 
-        # Stitch images progressively after each detection
-        if self.capture_mode != "bull" and self.stitching_arr:
-            print(f"[Stitch] Updating collage with {len(self.stitching_arr)} images so far")
-            stitch_images(
-                self.stitching_arr,
-                self.stitching_dict,
-                filename=self.filename,
-                blocking=False,
-            )
-
         # Clear detections for next capture
         self.detections = []
 
