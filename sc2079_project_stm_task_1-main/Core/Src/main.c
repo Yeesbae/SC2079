@@ -106,21 +106,21 @@ osThreadId_t communicateTaskHandle;
 const osThreadAttr_t communicateTask_attributes = {
   .name = "communicateTask",
   .stack_size = 1024 * 4,
-  .priority = (osPriority_t) osPriorityRealtime,
+  .priority = (osPriority_t) osPriorityAboveNormal,
 };
 /* Definitions for motorTask */
 osThreadId_t motorTaskHandle;
 const osThreadAttr_t motorTask_attributes = {
   .name = "motorTask",
   .stack_size = 512 * 4,
-  .priority = (osPriority_t) osPriorityRealtime,
+  .priority = (osPriority_t) osPriorityAboveNormal3,
 };
 /* Definitions for encoderTask */
 osThreadId_t encoderTaskHandle;
 const osThreadAttr_t encoderTask_attributes = {
   .name = "encoderTask",
   .stack_size = 512 * 4,
-  .priority = (osPriority_t) osPriorityRealtime,
+  .priority = (osPriority_t) osPriorityAboveNormal4,
 };
 /* Definitions for gyroTask */
 osThreadId_t gyroTaskHandle;
@@ -141,7 +141,7 @@ osThreadId_t ultrasonicTaskHandle;
 const osThreadAttr_t ultrasonicTask_attributes = {
   .name = "ultrasonicTask",
   .stack_size = 512 * 4,
-  .priority = (osPriority_t) osPriorityRealtime,
+  .priority = (osPriority_t) osPriorityAboveNormal2,
 };
 /* USER CODE BEGIN PV */
 
@@ -279,7 +279,7 @@ static void fatal_blink_and_park(void){
 static uint32_t ADC_Read(ADC_HandleTypeDef *hadc)
 {
     HAL_ADC_Start(hadc);
-    if (HAL_ADC_PollForConversion(hadc, 5) != HAL_OK) {  // 5ms timeout, not HAL_MAX_DELAY
+    if (HAL_ADC_PollForConversion(hadc, 10) != HAL_OK) {  // 10ms timeout for priority preemption safety
         HAL_ADC_Stop(hadc);
         return 0;
     }
@@ -1052,7 +1052,9 @@ void moveCarRight(double angle) {
 //	osDelay(300);
 	e_brake = 0;
 	times_acceptable = 0;
+	taskENTER_CRITICAL();
 	target_angle -= angle;
+	taskEXIT_CRITICAL();
 	// Non-blocking wait with osDelay to allow other tasks to run
 	while (finishCheck()) {
 		osDelay(10);  // Yield to scheduler - prevents blocking other tasks
@@ -1064,7 +1066,9 @@ void moveCarLeft(double angle) {
 //	osDelay(300);
 	e_brake = 0;
 	times_acceptable = 0;
+	taskENTER_CRITICAL();
 	target_angle += angle;
+	taskEXIT_CRITICAL();
 	// Non-blocking wait with osDelay to allow other tasks to run
 	while (finishCheck()) {
 		osDelay(10);  // Yield to scheduler - prevents blocking other tasks
@@ -1090,8 +1094,10 @@ int finishCheck() {
 uint16_t moveForwardUntilUltrasonic(uint16_t target_cm) {
 	// Reset gyro heading so servo correction starts clean
 	target_cm += 20;
+	taskENTER_CRITICAL();
 	total_angle = 0.0;
 	target_angle = 0.0;
+	taskEXIT_CRITICAL();
 	pwmVal_servo = SERVOCENTER;
 	straight_correction = 0;
 	motor_cruise_reset();  // reset PID + prevEnc for clean start
@@ -1115,8 +1121,10 @@ uint16_t moveForwardUntilUltrasonic(uint16_t target_cm) {
 }
 
 void moveForwardUntilIRClose(uint8_t sensor_id, uint16_t threshold_cm) {
+	taskENTER_CRITICAL();
 	total_angle = 0.0;
 	target_angle = 0.0;
+	taskEXIT_CRITICAL();
 	pwmVal_servo = SERVOCENTER;
 	straight_correction = 0;
 	motor_cruise_reset();
@@ -1147,12 +1155,12 @@ void moveForwardUntilIRFar(uint8_t sensor_id, uint16_t delta_cm) {
 	// meaning the obstacle has ended. The smaller reading must be < 35cm
 	// to ensure we're actually beside an obstacle before triggering.
 
-	// Early exit: if IR already reads far, no obstacle beside us (short obstacle case)
 	volatile uint16_t *ir_ptr = (sensor_id == 1) ? &irDistance1 : &irDistance2;
-	if (*ir_ptr >= 35) return;
 
+	taskENTER_CRITICAL();
 	total_angle = 0.0;
 	target_angle = 0.0;
+	taskEXIT_CRITICAL();
 	pwmVal_servo = SERVOCENTER;
 	straight_correction = 0;
 	motor_cruise_reset();
@@ -1160,6 +1168,27 @@ void moveForwardUntilIRFar(uint8_t sensor_id, uint16_t delta_cm) {
 	e_brake = 0;
 
 	osDelay(200);
+
+	// Drive a minimum distance before checking IR to avoid false early exit
+	// when sensor reads far right after a turn (not yet parallel to obstacle)
+	const uint16_t min_travel_ticks = 500;  // ~6 cm minimum forward travel
+	int32_t start_enc = (leftEncoderVal + rightEncoderVal) / 2;
+	while (((leftEncoderVal + rightEncoderVal) / 2 - start_enc) < min_travel_ticks) {
+		osDelay(10);
+	}
+
+	// If IR still reads far after minimum travel, no obstacle beside us
+	if (*ir_ptr >= 35) {
+		pwmVal_servo = SERVOCENTER;
+		straight_correction = 0;
+		cruise_mode = 0;
+		e_brake = 1;
+		pwmVal_L = pwmVal_R = 0;
+		motor_set_pwm_left(0);
+		motor_set_pwm_right(0);
+		osDelay(300);
+		return;
+	}
 
 	uint16_t prev_reading = *ir_ptr;
 	int confirm = 0;
@@ -1188,8 +1217,10 @@ void moveForwardUntilIRFar(uint8_t sensor_id, uint16_t delta_cm) {
 }
 
 void moveForwardUntilIRPassObstacle(uint8_t sensor_id, uint16_t near_cm, uint16_t far_cm) {
+	taskENTER_CRITICAL();
 	total_angle = 0.0;
 	target_angle = 0.0;
+	taskEXIT_CRITICAL();
 	pwmVal_servo = SERVOCENTER;
 	straight_correction = 0;
 	motor_cruise_reset();
@@ -1201,14 +1232,14 @@ void moveForwardUntilIRPassObstacle(uint8_t sensor_id, uint16_t near_cm, uint16_
 
 	// Phase A: Drive until IR detects obstacle beside us (reading < near_cm)
 	int confirm = 0;
-	while (confirm < 1) {
+	while (confirm < 3) {
 		osDelay(10);
 		if (*ir_ptr < near_cm) confirm++; else confirm = 0;
 	}
 
 	// Phase B: Continue until IR shows open space (reading > far_cm = passed obstacle)
 	confirm = 0;
-	while (confirm < 1) {
+	while (confirm < 3) {
 		osDelay(10);
 		if (*ir_ptr > far_cm) confirm++; else confirm = 0;
 	}
@@ -1233,8 +1264,10 @@ void bypassObstacle2(uint8_t direction) {
 	const uint16_t ir_length_far      = 50;   // Phase B: open space past obstacle (step 7)
 
 	// Reset gyro heading
+	taskENTER_CRITICAL();
 	total_angle = 0.0;
 	target_angle = 0.0;
+	taskEXIT_CRITICAL();
 
 	// Step 0: Reverse if too close to obstacle 2
 	if (uDistance < safe_turn_dist_cm && uDistance > 3) {
@@ -1268,7 +1301,7 @@ void bypassObstacle2(uint8_t direction) {
 			moveForwardUntilIRPassObstacle(2, ir_length_near, ir_length_far);
 		}
 		osDelay(100);
-		moveCarLeft(115);    osDelay(100);   // Step 8: face forward
+		moveCarLeft(90);     osDelay(100);   // Step 8: face toward carpark
 	} else {
 		// --- LEFT side bypass (mirror) ---
 		moveCarLeft(90);     osDelay(100);   // Step 1: face left, RIGHT IR faces obstacle
@@ -1289,51 +1322,51 @@ void bypassObstacle2(uint8_t direction) {
 			moveForwardUntilIRPassObstacle(1, ir_length_near, ir_length_far);
 		}
 		osDelay(100);
-		moveCarRight(115);     osDelay(100);   // Step 8: face forward
+		moveCarRight(90);    osDelay(100);   // Step 8: face toward carpark
 	}
 }
 
 /* -------- Phase 4: Return to carpark -------- */
 
 void returnToCarpark(uint8_t direction) {
-	//const double extra_displacement = 20.0;  // 30cm crossing obs1 + 30cm obstacle widths
-	//const uint16_t ir_close_thresh  = 50;    // detect obstacle 1 beside us
-	//const double   turn_to_carpark  = 100.0; // turn angle toward carpark (tunable)
-	//const uint16_t park_stop_cm     = 10;    // ultrasonic stop distance in carpark
+	// direction 'R' = bypassed right → center-facing IR is sensor 1 (right)
+	// direction 'L' = bypassed left  → center-facing IR is sensor 2 (left)
+	uint8_t center_sensor = (direction == 'R') ? 1 : 2;
+	const uint16_t ir_near_cm = 30;   // IR reading when beside obs1
+	const uint16_t ir_far_cm  = 50;   // IR reading when past obs1
+	const double reverse_align_cm = 5.0;  // reverse to center on obs1
 
-	//total_angle = 0.0;
-	//target_angle = 0.0;
+	// --- Step 1: Cruise toward carpark, IR detects then passes obs1 ---
+	moveForwardUntilIRPassObstacle(center_sensor, ir_near_cm, ir_far_cm);
+	osDelay(100);
 
-	// Step 1: Move forward (facing backward = toward carpark)
-	//double return_dist = (double)recorded_dist_1 + (double)recorded_dist_2;
+	// --- Step 2: Turn 90° toward center line ---
+	if (direction == 'R') {
+		moveCarRight(90);    // face toward center (left wall direction)
+	} else {
+		moveCarLeft(90);     // face toward center (right wall direction)
+	}
+	osDelay(100);
 
+	// --- Step 3: Cruise toward center, IR detects obs1 → stop beside it ---
+	moveForwardUntilIRClose(center_sensor, ir_near_cm);
+	osDelay(100);
 
+	// --- Step 4: Reverse slightly so next turn is centered on obs1 ---
+	moveCarStraight(-reverse_align_cm);
+	osDelay(100);
 
-	//moveCarStraight(-1 * return_dist);
+	// --- Step 5: Turn 90° toward carpark ---
+	if (direction == 'R') {
+		moveCarLeft(90);     // face toward carpark
+	} else {
+		moveCarRight(90);    // face toward carpark
+	}
+	osDelay(100);
+
+	// --- Step 6: Cruise into carpark, ultrasonic stops at back wall ---
 	moveForwardUntilUltrasonic(22);
 	osDelay(300);
-
-	/*if (direction == 'R') {
-		// Step 2: Turn toward center line
-		moveCarRight(90);    osDelay(300);
-		// Step 3: Move until LEFT IR detects obstacle 1
-		moveForwardUntilIRClose(2, ir_close_thresh);
-		osDelay(300);
-		// Step 4: Turn toward carpark
-		moveCarLeft(turn_to_carpark);  osDelay(300);
-	} else {
-		// Step 2: Turn toward center line
-		moveCarLeft(90);     osDelay(300);
-		// Step 3: Move until RIGHT IR detects obstacle 1
-		moveForwardUntilIRClose(1, ir_close_thresh);
-		osDelay(300);
-		// Step 4: Turn toward carpark
-		moveCarRight(turn_to_carpark);   osDelay(300);
-	}
-
-	// Step 5: Drive into carpark, stop at back wall
-	moveForwardUntilUltrasonic(park_stop_cm);
-	osDelay(300);*/
 }
 
 /* -------- Task 2: RPi communication helpers -------- */
@@ -1362,8 +1395,10 @@ void smoothBypassObstacle1Right(void) {
 	// --- Setup: enable smooth mode, start cruise ---
 	smooth_maneuver = 1;
 	straight_correction = 0;
+	taskENTER_CRITICAL();
 	total_angle = 0.0;
 	target_angle = 0.0;
+	taskEXIT_CRITICAL();
 
 	motor_cruise_reset();
 	cruise_mode = 1;
@@ -1414,8 +1449,10 @@ void smoothBypassObstacle1Left(void) {
 	// --- Setup: enable smooth mode, start cruise ---
 	smooth_maneuver = 1;
 	straight_correction = 0;
+	taskENTER_CRITICAL();
 	total_angle = 0.0;
 	target_angle = 0.0;
+	taskEXIT_CRITICAL();
 
 	motor_cruise_reset();
 	cruise_mode = 1;
@@ -1465,8 +1502,10 @@ void smoothBypassObstacle1Left(void) {
 
 void testSmoothBypassRight(uint16_t target_cm) {
 	target_cm += 15;
+	taskENTER_CRITICAL();
 	total_angle = 0.0;
 	target_angle = 0.0;
+	taskEXIT_CRITICAL();
 	pwmVal_servo = SERVOCENTER;
 	straight_correction = 0;
 	motor_cruise_reset();
@@ -1484,8 +1523,10 @@ void testSmoothBypassRight(uint16_t target_cm) {
 
 void testSmoothBypassLeft(uint16_t target_cm) {
 	target_cm += 15;
+	taskENTER_CRITICAL();
 	total_angle = 0.0;
 	target_angle = 0.0;
+	taskEXIT_CRITICAL();
 	pwmVal_servo = SERVOCENTER;
 	straight_correction = 0;
 	motor_cruise_reset();
