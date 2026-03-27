@@ -85,9 +85,9 @@ class ControllerFragment : Fragment(R.layout.fragment_controller) {
                         .takeLast(120)
                         .joinToString("\n") { e ->
                             val tag = when (e.kind.name) {
-                                "IN" -> "RPi"
-                                "OUT" -> "Me"
-                                else -> "Info"
+                                "IN" -> "VEHICLE"
+                                "OUT" -> "CONTROL"
+                                else -> "SYSTEM"
                             }
                             "[$tag] ${e.text}"
                         }
@@ -118,7 +118,7 @@ class ControllerFragment : Fragment(R.layout.fragment_controller) {
                     }
                     val mins = s.runSeconds / 60
                     val secs = s.runSeconds % 60
-                    tvRunTimer.text = "$label Time: %02d:%02d".format(mins, secs)
+                    tvRunTimer.text = "Drive Time: %02d:%02d".format(mins, secs)
                 }
             }
         }

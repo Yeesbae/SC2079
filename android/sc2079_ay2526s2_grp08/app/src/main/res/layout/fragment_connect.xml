@@ -5,6 +5,7 @@
     android:id="@+id/connect_root"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
+    android:background="@color/bg_dark"
     android:padding="16dp">
 
     <TextView
@@ -12,6 +13,7 @@
         android:layout_width="0dp"
         android:layout_height="wrap_content"
         android:text="Status: -"
+        android:textColor="#FFFFFF"
         android:textSize="16sp"
         android:textStyle="bold"
         app:layout_constraintTop_toTopOf="parent"
@@ -85,6 +87,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="Log:\n"
+            android:textColor="#FFFFFF"
             android:textSize="12sp" />
     </ScrollView>
 

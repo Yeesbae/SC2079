@@ -9,7 +9,7 @@
         android:id="@+id/tvDetectedImagesTitle"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="Detected Images"
+        android:text="Detected Objects"
         android:textStyle="bold"
         android:textSize="18sp"
         android:paddingBottom="12dp" />

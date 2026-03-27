@@ -133,12 +133,6 @@ enum class ExecutionMode {
     FASTEST,
 }
 
-data class PathExecutionState(
-    val poses: List<Incoming.RobotPosition> = emptyList(),
-    val currentIndex: Int = -1,
-    val isPlaying: Boolean = false,
-)
-
 data class LogEntry(
     val kind: Kind,
     val text: String,

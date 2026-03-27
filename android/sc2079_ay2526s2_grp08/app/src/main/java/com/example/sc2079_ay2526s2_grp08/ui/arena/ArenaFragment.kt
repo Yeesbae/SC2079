@@ -37,7 +37,6 @@ class ArenaFragment : Fragment() {
         super.onViewCreated(view, savedInstanceState)
 
         val arenaView = view.findViewById<ArenaView>(R.id.arenaView) ?: return
-        val tvSelected = view.findViewById<TextView>(R.id.tvSelected) ?: return
 
         view.findViewById<Button>(R.id.btnObs1)?.setOnClickListener { showObstacleConfigDialog(1) }
         view.findViewById<Button>(R.id.btnObs2)?.setOnClickListener { showObstacleConfigDialog(2) }
@@ -295,7 +294,7 @@ class ArenaFragment : Fragment() {
         renderDetectedImages()
 
         val dialog = AlertDialog.Builder(requireContext())
-            .setTitle("Detected Images")
+            .setTitle("Detected Objects")
             .setView(dialogView)
             .setPositiveButton("Close", null)
             .setNeutralButton("Clear All Images", null)

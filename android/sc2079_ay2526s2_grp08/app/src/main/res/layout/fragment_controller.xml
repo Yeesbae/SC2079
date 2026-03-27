@@ -2,21 +2,25 @@
 <androidx.constraintlayout.widget.ConstraintLayout
     xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:background="@color/bg_dark"
+    android:textColor="#FFFFFF"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:padding="12dp">
 
     <TextView
-        android:id="@+id/tvSelectedSmall"
-        android:layout_width="0dp"
+        android:id="@+id/tvTitle"
+        android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:paddingBottom="6dp"
-        android:text="Selected: Obs 1"
-        android:textSize="13sp"
+        android:text="Smart Vehicle Dashboard"
+        android:textColor="#FFFFFF"
         android:textStyle="bold"
+        android:textSize="18sp"
+        android:gravity="center"
+        android:padding="8dp"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toTopOf="parent" />
+        app:layout_constraintTop_toTopOf="parent"/>
 
     <!-- Obstacle selector -->
     <LinearLayout
@@ -24,7 +28,7 @@
         android:layout_width="0dp"
         android:layout_height="wrap_content"
         android:orientation="vertical"
-        app:layout_constraintTop_toBottomOf="@id/tvSelectedSmall"
+        app:layout_constraintTop_toBottomOf="@id/tvTitle"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent">
 
@@ -203,7 +207,7 @@
             android:id="@+id/arenaView"
             android:layout_width="0dp"
             android:layout_height="0dp"
-            android:background="@android:color/white"
+            android:background="@color/inner_bg_dark"
             android:paddingLeft="18dp"
             android:paddingBottom="18dp"
             android:paddingRight="6dp"
@@ -242,6 +246,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:text="Chat"
+                android:textColor="#FFFFFF"
                 android:textStyle="bold"
                 android:textSize="14sp"
                 android:paddingBottom="4dp"/>
@@ -253,13 +258,14 @@
                 android:layout_height="0dp"
                 android:layout_weight="2"
                 android:fillViewport="true"
-                android:background="@android:color/white"
+                android:background="@color/inner_bg_dark"
                 android:padding="6dp">
 
                 <TextView
                     android:id="@+id/tvChatTranscript"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
+                    android:textColor="#FFFFFF"
                     android:textSize="12sp"
                     android:typeface="monospace"
                     android:textIsSelectable="true"
@@ -358,6 +364,7 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="Connection: -"
+                    android:textColor="#FFFFFF"
                     android:textStyle="bold"
                     android:textSize="14sp"/>
 
@@ -365,7 +372,8 @@
                     android:id="@+id/tvRobotLoc"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:text="Robot: (x,y,dir)"
+                    android:text="Vehicle: (x,y,dir)"
+                    android:textColor="#FFFFFF"
                     android:layout_marginTop="6dp"/>
 
                 <TextView
@@ -373,35 +381,36 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="Run Time: 00:00"
+                    android:textColor="#FFFFFF"
                     android:textSize="14sp"
                     android:textStyle="bold"
                     android:paddingTop="6dp"/>
 
                 <Button
                     android:id="@+id/btnStopRun"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="Stop Run" />
+                    android:layout_width="match_parent"
+                    android:layout_height="36dp"
+                    android:text="Stop" />
 
                 <Button
                     android:id="@+id/btnExplore"
                     android:layout_width="match_parent"
                     android:layout_height="36dp"
-                    android:text="Start Explore"
+                    android:text="Start Drive"
                     android:layout_marginTop="8dp"/>
 
                 <Button
                     android:id="@+id/btnFastest"
                     android:layout_width="match_parent"
                     android:layout_height="36dp"
-                    android:text="Start Fastest Path"
+                    android:text="Optimise Path"
                     android:layout_marginTop="6dp"/>
 
                 <Button
                     android:id="@+id/btnReset"
                     android:layout_width="match_parent"
                     android:layout_height="36dp"
-                    android:text="Reset"
+                    android:text="Reset System"
                     android:layout_marginTop="6dp"/>
 
             </LinearLayout>
