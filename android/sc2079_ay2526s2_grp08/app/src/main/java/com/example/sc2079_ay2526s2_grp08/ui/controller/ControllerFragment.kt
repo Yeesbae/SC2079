@@ -75,6 +75,7 @@ class ControllerFragment : Fragment(R.layout.fragment_controller) {
                     s.robot?.let {
                         arenaView.setRobotRect(it.x, it.y, it.robotX, it.robotY, it.robotDirection)
                     }
+                    arenaView.setPlaybackPath(s.playbackPath)
                     arenaView.setArena(s.arena)
                     arenaView.setPendingPreview(s.pendingPreview)
                     arenaView.setPendingActive(s.pendingObstacle != null)

@@ -183,6 +183,19 @@ class ArenaView @JvmOverloads constructor(
                 cy in robotBlY until (robotBlY + robotH)
     }
 
+    private var playbackPath: List<GridPoint> = emptyList()
+
+    fun setPlaybackPath(path: List<GridPoint>) {
+        playbackPath = path
+        invalidate()
+    }
+
+    private val pathPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.FILL
+        color = 0xFF3F8CFF.toInt()
+        alpha = 120
+    }
+
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         super.onSizeChanged(w, h, oldw, oldh)
 
@@ -318,6 +331,25 @@ class ArenaView @JvmOverloads constructor(
                     null -> Unit
                 }
             }
+        }
+
+        for (pt in playbackPath) {
+            if (pt.x !in 0 until gridSize || pt.y !in 0 until gridSize) continue
+
+            val pxL = left + pt.x * cellPx
+            val pxR = left + (pt.x + robotW) * cellPx
+            val pxT = top + (gridSize - (pt.y + robotH)) * cellPx
+            val pxB = top + (gridSize - pt.y) * cellPx
+
+            canvas.drawRoundRect(
+                pxL + dp(1f),
+                pxT + dp(1f),
+                pxR - dp(1f),
+                pxB - dp(1f),
+                dp(6f),
+                dp(6f),
+                pathPaint
+            )
         }
 
         val robotLeft   = left + robotBlX * cellPx

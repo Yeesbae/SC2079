@@ -1,7 +1,6 @@
 package com.example.sc2079_ay2526s2_grp08.domain
 
 import com.example.sc2079_ay2526s2_grp08.bluetooth.BluetoothManager
-import com.example.sc2079_ay2526s2_grp08.protocol.Incoming
 
 /**
  * Represents the robot's current state on the arena.
@@ -106,6 +105,8 @@ data class ArenaState(
         }
     }
 }
+
+data class GridPoint(val x: Int, val y: Int)
 
 /**
  * Represents an image detection result from RPI vision module.
@@ -221,6 +222,7 @@ data class AppState(
     val lastImageBytes: ByteArray? = null,
 
     // Path execution
+    val playbackPath: List<GridPoint> = emptyList(),
     val executionMode: ExecutionMode = ExecutionMode.NONE,
     val runSeconds: Long = 0,
 
