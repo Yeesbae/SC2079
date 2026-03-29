@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<navigation xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/nav_graph"
+    app:startDestination="@id/connectFragment">
+
+    <fragment
+        android:id="@+id/connectFragment"
+        android:name="com.example.sc2079_ay2526s2_grp08.ui.connect.ConnectFragment"
+        android:label="Connect" />
+
+    <fragment
+        android:id="@+id/controllerFragment"
+        android:name="com.example.sc2079_ay2526s2_grp08.ui.controller.ControllerFragment"
+        android:label="Controller" />
+
+    <fragment
+        android:id="@+id/arenaFragment"
+        android:name="com.example.sc2079_ay2526s2_grp08.ui.arena.ArenaFragment"
+        android:label="Arena" />
+</navigation>

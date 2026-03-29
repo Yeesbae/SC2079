@@ -1,0 +1,729 @@
+package com.example.sc2079_ay2526s2_grp08.ui.arena
+
+import android.content.Context
+import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.LinearGradient
+import android.graphics.Paint
+import android.graphics.Shader
+import android.util.AttributeSet
+import android.view.MotionEvent
+import android.view.View
+import com.example.sc2079_ay2526s2_grp08.domain.*
+import kotlin.math.min
+
+class ArenaView @JvmOverloads constructor(
+    context: Context,
+    attrs: AttributeSet? = null
+) : View(context, attrs) {
+
+    interface Listener {
+        fun onArenaCellTap(x: Int, y: Int)
+        fun onPendingPreview(bottomLeftX: Int, bottomLeftY: Int)
+        fun onPendingCommit(bottomLeftX: Int, bottomLeftY: Int)
+        fun onPendingCancel()
+        fun onPlacedTap(protocolId: String)
+        fun onPlacedDrag(protocolId: String, x: Int, y: Int)
+        fun onPlacedDrop(protocolId: String, x: Int, y: Int)
+        fun onPlacedRemove(protocolId: String)
+        fun onRobotTap()
+    }
+
+    private var listener: Listener? = null
+    fun setListener(l: Listener?) { listener = l }
+
+    private var arena: ArenaState? = null
+    fun setArena(a: ArenaState?){
+        arena = a
+        invalidate()
+    }
+
+    private var pendingActive: Boolean = false
+    private var pendingPreview: PlacedObstacle? = null
+    private var draggingPending = false
+    private var dragPreview: PlacedObstacle? = null
+
+    fun setPendingActive(active: Boolean) {
+        pendingActive = active
+    }
+
+    fun setPendingPreview(p: PlacedObstacle?) {
+        pendingPreview = p
+        invalidate()
+    }
+
+    fun setDragPreview(p: PlacedObstacle?) { dragPreview = p; invalidate() }
+
+    private val gridSize = ArenaConfig.GRID_SIZE
+
+    private var robotBlX: Int = 0
+    private var robotBlY: Int = 0
+    private var robotW: Int = 3
+    private var robotH: Int = 3
+    private var robotDir: RobotDirection = RobotDirection.NORTH
+
+    private val gridPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        color = 0xFFCCCCCC.toInt()
+        strokeWidth = dp(1f)
+    }
+
+    private val guideLinePaint = Paint().apply {
+        color = Color.WHITE
+        strokeWidth = 2f
+        alpha = 160
+        style = Paint.Style.STROKE
+    }
+
+    private fun drawGuideLines(canvas: Canvas, obstacle: PlacedObstacle) {
+        if (cellPx <= 0f) return
+
+        val left = originX
+        val top = originY
+        val right = left + sidePx
+        val bottom = top + sidePx
+
+        val centerX = left + (obstacle.bottomLeftX + obstacle.width / 2f) * cellPx
+        val centerYCell = obstacle.bottomLeftY + obstacle.height / 2f
+        val centerY = top + (gridSize - centerYCell) * cellPx
+
+        canvas.drawLine(centerX, top, centerX, bottom, guideLinePaint)
+        canvas.drawLine(left, centerY, right, centerY, guideLinePaint)
+    }
+
+    private val borderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        color = 0xFF000000.toInt()
+        strokeWidth = dp(2f)
+    }
+
+    private val robotPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.FILL
+        color = 0xFF2C2C2C.toInt()
+    }
+
+    private val axisPaintX = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = 0xFFFFFFFF.toInt()
+        textSize = dp(10f)
+        textAlign = Paint.Align.CENTER
+    }
+
+    private val axisPaintY = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = 0xFFFFFFFF.toInt()
+        textSize = dp(10f)
+        textAlign = Paint.Align.RIGHT
+    }
+
+    private val obstaclePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.FILL
+        color = 0xFF455A64.toInt()
+    }
+
+    private val obstacleIdPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = 0xFFFFFFFF.toInt()
+        textAlign = Paint.Align.LEFT
+        textSize = dp(11f)
+        isFakeBoldText = true
+    }
+
+    private val targetIdPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = 0xFFFFFFFF.toInt()
+        textAlign = Paint.Align.CENTER
+        textSize = dp(16f)
+        isFakeBoldText = true
+    }
+
+    private val faceStrokePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        color = 0xFFFFC107.toInt()
+        strokeWidth = dp(3f)
+        strokeCap = Paint.Cap.ROUND
+    }
+
+    private val carBodyPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.FILL
+        color = 0xFF2A5D9F.toInt()
+    }
+
+    private val carWindowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.FILL
+        color = 0xFF90CAF9.toInt()
+        alpha = 210
+    }
+
+    private val carWheelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.FILL
+        color = 0xFF444444.toInt()
+    }
+
+    private val headLightPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.FILL
+        color = 0xFFFFD54F.toInt()
+    }
+
+    private val carOutlinePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        color = 0xFF000000.toInt()
+        strokeWidth = dp(2f)
+    }
+
+    private var sidePx = 0f
+    private var cellPx = 0f
+    private var originX = 0f
+    private var originY = 0f
+
+    private var draggingProtocolId: String? = null
+    private var downCellX: Int? = null
+    private var downCellY: Int? = null
+    private var moved = false
+
+    private var downOnRobot: Boolean = false
+    private fun isRobotAt(cx: Int, cy: Int): Boolean {
+        return cx in robotBlX until (robotBlX + robotW) &&
+                cy in robotBlY until (robotBlY + robotH)
+    }
+
+    private var playbackPath: List<GridPoint> = emptyList()
+
+    fun setPlaybackPath(path: List<GridPoint>) {
+        playbackPath = path
+        invalidate()
+    }
+
+    private val pathPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.FILL
+        color = 0xFF3F8CFF.toInt()
+        alpha = 120
+    }
+
+    override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
+        super.onSizeChanged(w, h, oldw, oldh)
+
+        val usableW = w - paddingLeft - paddingRight
+        val usableH = h - paddingTop - paddingBottom
+        sidePx = min(usableW, usableH).toFloat()
+
+        originX = paddingLeft + (usableW - sidePx) / 2f
+        originY = paddingTop + (usableH - sidePx) / 2f
+
+        cellPx = sidePx / gridSize
+    }
+
+    override fun onDraw(canvas: Canvas) {
+        super.onDraw(canvas)
+        if (cellPx <= 0f) return
+
+        val left = originX
+        val top = originY
+        val right = left + sidePx
+        val bottom = top + sidePx
+
+        canvas.drawRect(left, top, right, bottom, borderPaint)
+
+        for (i in 0..gridSize) {
+            val x = left + i * cellPx
+            val y = top + i * cellPx
+            canvas.drawLine(x, top, x, bottom, gridPaint)
+            canvas.drawLine(left, y, right, y, gridPaint)
+        }
+
+        for (i in 0 until gridSize) {
+            val x = left + i * cellPx
+            canvas.drawText(i.toString(), x, bottom + dp(12f), axisPaintX)
+
+            val y = top + (gridSize - i) * cellPx
+            canvas.drawText(i.toString(), left - dp(4f), y + dp(4f), axisPaintY)
+        }
+
+        val preview = pendingPreview
+        if (preview != null) {
+            val paint = Paint(obstaclePaint).apply { alpha = 120 } // ghost
+            val pxL = left + preview.bottomLeftX * cellPx
+            val pxR = left + (preview.bottomLeftX + preview.width) * cellPx
+            val pxT = top + (gridSize - 1 - (preview.bottomLeftY + preview.height - 1)) * cellPx
+            val pxB = top + (gridSize - preview.bottomLeftY) * cellPx
+
+            canvas.drawRect(pxL, pxT, pxR, pxB, paint)
+
+            // optional preview label
+            canvas.drawText(
+                preview.protocolId,
+                (pxL + pxR) / 2f,
+                (pxT + pxB) / 2f + dp(6f),
+                targetIdPaint
+            )
+        }
+
+        val guideObstacle = dragPreview ?: pendingPreview
+        guideObstacle?.let {
+            drawGuideLines(canvas, it)
+        }
+
+        val ghost = dragPreview
+        if (ghost != null) {
+            val paint = Paint(obstaclePaint).apply { alpha = 120 }
+            val pxL = left + ghost.bottomLeftX * cellPx
+            val pxR = left + (ghost.bottomLeftX + ghost.width) * cellPx
+            val pxT = top + (gridSize - 1 - (ghost.bottomLeftY + ghost.height - 1)) * cellPx
+            val pxB = top + (gridSize - ghost.bottomLeftY) * cellPx
+            canvas.drawRect(pxL, pxT, pxR, pxB, paint)
+        }
+
+        val a = arena
+        if (a != null) {
+            // 1) collect obstacle cells grouped by protocolId
+            val groups = mutableMapOf<String, MutableList<Pair<Int, Int>>>()
+            val groupMeta = mutableMapOf<String, Cell>()
+
+            for (y in 0 until a.height) {
+                for (x in 0 until a.width) {
+                    val cell = a.getCell(x, y)
+                    if (!cell.isObstacle) continue
+                    val pid = cell.protocolId ?: continue
+
+                    groups.getOrPut(pid) { mutableListOf() }.add(x to y)
+                    groupMeta.putIfAbsent(pid, cell) // first cell as representative
+                }
+            }
+
+            // 2) draw each group as a block (single label)
+            for ((pid, cells) in groups) {
+                // compute bounds
+                val minX = cells.minOf { it.first }
+                val maxX = cells.maxOf { it.first }
+                val minY = cells.minOf { it.second }
+                val maxY = cells.maxOf { it.second }
+
+                val pxL = left + minX * cellPx
+                val pxR = left + (maxX + 1) * cellPx
+                val pxT = top + (gridSize - 1 - maxY) * cellPx
+                val pxB = top + (gridSize - minY) * cellPx
+
+                canvas.drawRect(pxL, pxT, pxR, pxB, obstaclePaint)
+
+                val rep = groupMeta[pid]
+                val detected = rep?.imageId
+
+                if (!detected.isNullOrBlank()) {
+                    // BIG when detected
+                    canvas.drawText(
+                        detected,
+                        (pxL + pxR) / 2f,
+                        (pxT + pxB) / 2f + dp(6f),
+                        targetIdPaint
+                    )
+                } else {
+                    // SMALL initially
+                    val label = rep?.obstacleId?.toString() ?: pid // fallback: pid
+                    canvas.drawText(
+                        label,
+                        pxL + dp(4f),          // small label near top-left
+                        pxT + dp(14f),
+                        obstacleIdPaint
+                    )
+                }
+
+                when (rep?.targetDirection) {
+                    RobotDirection.NORTH -> canvas.drawLine(pxL, pxT, pxR, pxT, faceStrokePaint)
+                    RobotDirection.SOUTH -> canvas.drawLine(pxL, pxB, pxR, pxB, faceStrokePaint)
+                    RobotDirection.EAST  -> canvas.drawLine(pxR, pxT, pxR, pxB, faceStrokePaint)
+                    RobotDirection.WEST  -> canvas.drawLine(pxL, pxT, pxL, pxB, faceStrokePaint)
+                    null -> Unit
+                }
+            }
+        }
+
+        for (pt in playbackPath) {
+            if (pt.x !in 0 until gridSize || pt.y !in 0 until gridSize) continue
+
+            val pxL = left + pt.x * cellPx
+            val pxR = left + (pt.x + robotW) * cellPx
+            val pxT = top + (gridSize - (pt.y + robotH)) * cellPx
+            val pxB = top + (gridSize - pt.y) * cellPx
+
+            canvas.drawRoundRect(
+                pxL + dp(1f),
+                pxT + dp(1f),
+                pxR - dp(1f),
+                pxB - dp(1f),
+                dp(6f),
+                dp(6f),
+                pathPaint
+            )
+        }
+
+        val robotLeft   = left + robotBlX * cellPx
+        val robotRight  = left + (robotBlX + robotW) * cellPx
+        val robotTop    = top + (gridSize - (robotBlY + robotH)) * cellPx
+        val robotBottom = top + (gridSize - robotBlY) * cellPx
+        drawCarOverlay(canvas, robotLeft, robotTop, robotRight, robotBottom, robotDir)
+    }
+
+    override fun onTouchEvent(event: MotionEvent): Boolean {
+        if (cellPx <= 0f) return false
+
+        val cell = pointToCell(event.x, event.y)
+        val inArena = cell != null
+
+        when (event.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                moved = false
+                downCellX = cell?.first
+                downCellY = cell?.second
+
+                draggingPending = false
+                draggingProtocolId = null
+
+                downOnRobot = false
+
+                if (inArena) {
+                    val (cx, cy) = cell!!
+
+                    if (isRobotAt(cx, cy)) {
+                        downOnRobot = true
+                        return true
+                    }
+
+                    // 1) If tapping on an existing placed obstacle => drag that obstacle
+                    val pid = obstacleAt(cx, cy)
+                    if (pid != null) {
+                        draggingProtocolId = pid
+                    } else if (pendingActive) {
+                        // 2) Otherwise if we have a pending block => start pending drag
+                        draggingPending = true
+                        listener?.onPendingPreview(cx, cy)
+                    }
+                }
+                return true
+            }
+
+            MotionEvent.ACTION_MOVE -> {
+                val c = cell ?: run {
+                    moved = true
+                    // If finger moved out of arena while dragging pending, you may choose to cancel preview
+                    return true
+                }
+
+                moved = true
+
+                if (downOnRobot) return true
+
+                // Pending drag preview
+                if (draggingPending) {
+                    listener?.onPendingPreview(c.first, c.second)
+                    return true
+                }
+
+                // Placed obstacle drag preview
+                val pid = draggingProtocolId
+                if (pid != null) {
+                    listener?.onPlacedDrag(pid, c.first, c.second)
+                }
+                return true
+            }
+
+            MotionEvent.ACTION_UP -> {
+                if (downOnRobot && !moved) {
+                    downOnRobot = false
+                    listener?.onRobotTap()
+                    return true
+                }
+                downOnRobot = false
+
+                val pid = draggingProtocolId
+                val wasPending = draggingPending
+
+                draggingProtocolId = null
+                draggingPending = false
+
+                // Pending placement commit/cancel
+                if (wasPending) {
+                    if (!inArena || cell == null) {
+                        listener?.onPendingCancel()
+                    } else {
+                        listener?.onPendingCommit(cell.first, cell.second)
+                    }
+                    return true
+                }
+
+                // Existing placed obstacle tap/drop/remove
+                if (pid != null) {
+                    if (!inArena || cell == null) {
+                        listener?.onPlacedRemove(pid)
+                        return true
+                    }
+
+                    val endX = cell.first
+                    val endY = cell.second
+
+                    val startX = downCellX
+                    val startY = downCellY
+
+                    if (!moved && startX != null && startY != null && startX == endX && startY == endY) {
+                        listener?.onPlacedTap(pid)
+                    } else {
+                        listener?.onPlacedDrop(pid, endX, endY)
+                    }
+                    return true
+                }
+
+                // Normal arena tap (no pending active): let fragment decide what to do
+                if (inArena && cell != null) {
+                    listener?.onArenaCellTap(cell.first, cell.second)
+                }
+                return true
+            }
+        }
+
+        return super.onTouchEvent(event)
+    }
+
+    fun setRobotRect(blX: Int, blY: Int, w: Int, h: Int, dir: RobotDirection) {
+        robotW = w.coerceAtLeast(1)
+        robotH = h.coerceAtLeast(1)
+        robotBlX = blX.coerceIn(0, gridSize - robotW)
+        robotBlY = blY.coerceIn(0, gridSize - robotH)
+        robotDir = dir
+        invalidate()
+    }
+
+    private fun obstacleAt(x: Int, y: Int): String? {
+        val a = arena ?: return null
+        val c = a.getCell(x, y)
+        return if (c.isObstacle) c.protocolId else null
+    }
+
+    private fun pointToCell(px: Float, py: Float): Pair<Int, Int>? {
+        val left = originX
+        val top = originY
+        val right = left + sidePx
+        val bottom = top + sidePx
+
+        if (px < left || px > right || py < top || py > bottom) return null
+
+        val gx = ((px - left) / cellPx).toInt().coerceIn(0, gridSize - 1)
+        val rowFromTop = ((py - top) / cellPx).toInt().coerceIn(0, gridSize - 1)
+        val gy = (gridSize - 1 - rowFromTop).coerceIn(0, gridSize - 1)
+        return gx to gy
+    }
+
+    private fun drawCarOverlay(
+        canvas: Canvas,
+        left: Float,
+        top: Float,
+        right: Float,
+        bottom: Float,
+        dir: RobotDirection
+    ) {
+        val bodyInset = cellPx * 0.05f
+        val bodyLeft = left + bodyInset
+        val bodyTop = top + bodyInset
+        val bodyRight = right - bodyInset
+        val bodyBottom = bottom - bodyInset
+        val radius = dp(10f)
+        val shader = LinearGradient(
+            bodyLeft, bodyTop,
+            bodyRight, bodyBottom,
+            0xFF3A3A3A.toInt(),
+            0xFF1F1F1F.toInt(),
+            Shader.TileMode.CLAMP
+        )
+        carBodyPaint.shader = shader
+
+        // Car body
+        canvas.drawRoundRect(
+            bodyLeft,
+            bodyTop,
+            bodyRight,
+            bodyBottom,
+            radius,
+            radius,
+            carBodyPaint
+        )
+
+        canvas.drawRoundRect(
+            bodyLeft,
+            bodyTop,
+            bodyRight,
+            bodyBottom,
+            radius,
+            radius,
+            carOutlinePaint
+        )
+
+        // Window / windshield area
+        when (dir) {
+            RobotDirection.NORTH -> {
+                canvas.drawRoundRect(
+                    bodyLeft + dp(10f),
+                    bodyTop + dp(4f),
+                    bodyRight - dp(10f),
+                    bodyTop + dp(20f),
+                    dp(6f), dp(6f), carWindowPaint
+                )
+            }
+            RobotDirection.SOUTH -> {
+                canvas.drawRoundRect(
+                    bodyLeft + dp(10f),
+                    bodyBottom - dp(20f),
+                    bodyRight - dp(10f),
+                    bodyBottom - dp(4f),
+                    dp(6f), dp(6f), carWindowPaint
+                )
+            }
+            RobotDirection.EAST -> {
+                canvas.drawRoundRect(
+                    bodyRight - dp(20f),
+                    bodyTop + dp(10f),
+                    bodyRight - dp(4f),
+                    bodyBottom - dp(10f),
+                    dp(6f), dp(6f), carWindowPaint
+                )
+            }
+            RobotDirection.WEST -> {
+                canvas.drawRoundRect(
+                    bodyLeft + dp(4f),
+                    bodyTop + dp(10f),
+                    bodyLeft + dp(20f),
+                    bodyBottom - dp(10f),
+                    dp(6f), dp(6f), carWindowPaint
+                )
+            }
+        }
+
+        // Wheels
+        val wheelLong = dp(12f)
+        val wheelShort = dp(6f)
+
+        when (dir) {
+
+            // Facing NORTH / SOUTH → wheels vertical
+            RobotDirection.NORTH, RobotDirection.SOUTH -> {
+
+                // left side
+                canvas.drawRoundRect(
+                    bodyLeft - wheelShort,
+                    bodyTop + dp(8f),
+                    bodyLeft,
+                    bodyTop + dp(8f) + wheelLong,
+                    dp(3f), dp(3f), carWheelPaint
+                )
+                canvas.drawRoundRect(
+                    bodyLeft - wheelShort,
+                    bodyBottom - dp(8f) - wheelLong,
+                    bodyLeft,
+                    bodyBottom - dp(8f),
+                    dp(3f), dp(3f), carWheelPaint
+                )
+
+                // right side
+                canvas.drawRoundRect(
+                    bodyRight,
+                    bodyTop + dp(8f),
+                    bodyRight + wheelShort,
+                    bodyTop + dp(8f) + wheelLong,
+                    dp(3f), dp(3f), carWheelPaint
+                )
+                canvas.drawRoundRect(
+                    bodyRight,
+                    bodyBottom - dp(8f) - wheelLong,
+                    bodyRight + wheelShort,
+                    bodyBottom - dp(8f),
+                    dp(3f), dp(3f), carWheelPaint
+                )
+            }
+
+            // Facing EAST / WEST → wheels horizontal
+            RobotDirection.EAST, RobotDirection.WEST -> {
+
+                // top wheels
+                canvas.drawRoundRect(
+                    bodyLeft + dp(8f),
+                    bodyTop - wheelShort,
+                    bodyLeft + dp(8f) + wheelLong,
+                    bodyTop,
+                    dp(3f), dp(3f), carWheelPaint
+                )
+                canvas.drawRoundRect(
+                    bodyRight - dp(8f) - wheelLong,
+                    bodyTop - wheelShort,
+                    bodyRight - dp(8f),
+                    bodyTop,
+                    dp(3f), dp(3f), carWheelPaint
+                )
+
+                // bottom wheels
+                canvas.drawRoundRect(
+                    bodyLeft + dp(8f),
+                    bodyBottom,
+                    bodyLeft + dp(8f) + wheelLong,
+                    bodyBottom + wheelShort,
+                    dp(3f), dp(3f), carWheelPaint
+                )
+                canvas.drawRoundRect(
+                    bodyRight - dp(8f) - wheelLong,
+                    bodyBottom,
+                    bodyRight - dp(8f),
+                    bodyBottom + wheelShort,
+                    dp(3f), dp(3f), carWheelPaint
+                )
+            }
+        }
+
+        val lightW = dp(10f)
+        val lightH = dp(4f)
+
+        when (dir) {
+            RobotDirection.NORTH -> {
+                canvas.drawRoundRect(
+                    bodyLeft + dp(8f), bodyTop - dp(1f),
+                    bodyLeft + dp(8f) + lightW, bodyTop - dp(1f) + lightH,
+                    dp(2f), dp(2f), headLightPaint
+                )
+                canvas.drawRoundRect(
+                    bodyRight - dp(8f) - lightW, bodyTop - dp(1f),
+                    bodyRight - dp(8f), bodyTop - dp(1f) + lightH,
+                    dp(2f), dp(2f), headLightPaint
+                )
+            }
+            RobotDirection.SOUTH -> {
+                canvas.drawRoundRect(
+                    bodyLeft + dp(8f), bodyBottom - lightH + dp(1f),
+                    bodyLeft + dp(8f) + lightW, bodyBottom + dp(1f),
+                    dp(2f), dp(2f), headLightPaint
+                )
+                canvas.drawRoundRect(
+                    bodyRight - dp(8f) - lightW, bodyBottom - lightH + dp(1f),
+                    bodyRight - dp(8f), bodyBottom + dp(1f),
+                    dp(2f), dp(2f), headLightPaint
+                )
+            }
+            RobotDirection.EAST -> {
+                canvas.drawRoundRect(
+                    bodyRight - lightH + dp(1f), bodyTop + dp(8f),
+                    bodyRight + dp(1f), bodyTop + dp(8f) + lightW,
+                    dp(2f), dp(2f), headLightPaint
+                )
+                canvas.drawRoundRect(
+                    bodyRight - lightH + dp(1f), bodyBottom - dp(8f) - lightW,
+                    bodyRight + dp(1f), bodyBottom - dp(8f),
+                    dp(2f), dp(2f), headLightPaint
+                )
+            }
+            RobotDirection.WEST -> {
+                canvas.drawRoundRect(
+                    bodyLeft - dp(1f), bodyTop + dp(8f),
+                    bodyLeft - dp(1f) + lightH, bodyTop + dp(8f) + lightW,
+                    dp(2f), dp(2f), headLightPaint
+                )
+                canvas.drawRoundRect(
+                    bodyLeft - dp(1f), bodyBottom - dp(8f) - lightW,
+                    bodyLeft - dp(1f) + lightH, bodyBottom - dp(8f),
+                    dp(2f), dp(2f), headLightPaint
+                )
+            }
+        }
+    }
+
+    private fun dp(v: Float): Float = v * resources.displayMetrics.density
+}
