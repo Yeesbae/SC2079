@@ -1,195 +1,257 @@
-# Methods Implementation
+# 🚗 Real-Time Robot Control Dashboard (Android)
 
-This document explains how the UI should interact with the backend via MainViewModel.
+An Android-based control system for real-time robot navigation, featuring a car dashboard-style interface.
 
-## Core rule
+![Demo](android\sc2079_ay2526s2_grp08\assets\demo.gif)
 
-- UI only calls MainViewModel methods and observes state: StateFlow<AppState)
-- UI **must not** touch BluetoothManager directly
-- UI **must not** build/parse protocol strings
+---
+# Android Control Dashboard
 
-## All UI screens should observe:
+This module implements the Android application used to control and monitor the robot in real time.
 
-```
-state.mode / state.conn
-Bluetooth connection state (server/client, connected/disconnected)
+The app acts as the UI and coordination layer between the user and the robot system, handling:
 
-state.statusText
-Status banner text (connection updates + incoming MSG/STATUS)
+- Bluetooth communication
+- arena rendering
+- obstacle placement and editing
+- robot playback visualization
+- image detection display
+- run timer and logs
 
-state.pairedDevices / state.scannedDevices / state.isScanning
-Device list UI
+---
 
-state.arena
-Arena cells for drawing grid + obstacles
+## Core Rules
 
-state.robot
-Robot pose for drawing robot overlay
+- UI only interacts with the backend through `MainViewModel`
+- UI must **not** call `BluetoothManager` directly
+- UI must **not** manually build or parse protocol strings
+- Rendering is driven by `StateFlow<AppState>`
 
-state.obstacleBlocks
-Obstacle list UI (IDs, coordinates, facing, detected targetId)
+---
 
-state.taggedObstacleRects / state.obstacleGroupMeta
-Group tagging UI for algorithm input
+## Main Responsibilities
 
-state.detections / state.lastDetection
-Image detection UI (history + last detected)
+### 1. Bluetooth Communication
+The app supports:
 
-state.pathExecution
-Path visualization + stepping controls
+- server mode listening
+- connecting to paired/discovered devices
+- scanning and listing devices
+- sending commands
+- receiving status, path commands, detections, and images
 
-state.log
-Message log (IN/OUT/INFO/ERROR)
-```
+Main ViewModel methods:
 
-## Screen → VM method mapping
-### 1) Bluetooth / Connection Screen
-
-```
-Start listening (server mode)
+```kotlin
 vm.startDefaultListening()
-
-Disconnect and return to listening
 vm.disconnectAndReturnToListening()
-
-Refresh paired devices
 vm.refreshPairedDevices()
-
-Start scan
 vm.startScan()
-
-Stop scan
 vm.stopScan()
-
-Clear scan results
-vm.clearScanResults()
-
-Connect to a selected device
-vm.connectToDevice(selectedBtDevice)
-
-Discoverable prompt
-intent = vm.getDiscoverableIntent(300) then startActivity(intent)
-
-Bluetooth checks
+vm.connectToDevice(device)
+vm.getDiscoverableIntent(300)
 vm.isBluetoothSupported()
 vm.isBluetoothEnabled()
-
-UI should display:
-paired list from state.pairedDevices
-scanned list from state.scannedDevices
-loading indicator from state.isScanning
-connection status from state.conn
 ```
-
-### 2) Arena Screen (grid + robot + obstacles)
-
-```
-Arena init/reset
-vm.initializeArena(width, height)
-
-Robot manual placement (drag/drop)
-While dragging (UI-only): vm.setLocalRobotPosition(x, y, dir)
-If user confirms and wants remote to follow: vm.sendSetRobotPosition(x, y, dir)
-
-Obstacle placement (tap / drag)
-Place or drag obstacle with fixed ID
-vm.placeOrMoveObstacle(id, x, y)
-
-Auto-place (let VM choose ID)
-val id = vm.sendAddObstacle(x, y) (returns “B#”)
-
-Remove obstacle
-vm.removeObstacle(id)
-
-Obstacle face annotation (dropdown N/E/S/W)
-vm.setObstacleFacing(id, facing)
-
-UI should draw:
-grid using state.arena
-robot using state.robot
-obstacles either via state.arena (cell flags) or state.obstacleBlocks
-detected imageId on obstacle from state.obstacleBlocks.targetId
-```
-
-### 3) Manual Movement Controls
-
-```
-Buttons call:
-Forward: vm.sendMoveForward()
-Backward: vm.sendMoveBackward()
-Left: vm.sendTurnLeft()
-Right: vm.sendTurnRight()
-Stop: vm.sendStop()
-
-Optional “steps” UI:
-vm.sendMoveForward(steps)
-vm.sendMoveBackward(steps)
-vm.sendTurnDegrees(degrees)
-```
-
-Notes:
-- VM applies local preview immediately, then sends Bluetooth command.
-
-### 4) Algorithm Controls
-```
-Request sync/state from remote: vm.sendRequestSync()
-Start exploration: vm.sendStartExploration()
-Start fastest path: vm.sendStartFastestPath()
-```
-
-### 5) Group Tagging (for algorithm rectangles)
-
-Use when user is selecting clustered obstacles (component tagging).
-
-```
-Assign group ID based on a tapped cell
-vm.assignGroupIdFromCell(cellX, cellY, groupId)
-
-Set metadata per group
-vm.setGroupMeta(groupId, imageId, facing)
-
-Send all tagged rectangles to algorithm
-vm.sendTaggedObstaclesToAlgo()
-
-UI should display:
-list of rects from state.taggedObstacleRects
-per group metadata from state.obstacleGroupMeta[groupId]
-```
-
-### 6) Path Playback / Visualization
-
-When remote sends a path, VM updates `state.pathExecution.poses`.
-
-```
-UI controls:
-Clear path: vm.clearPath()
-Step forward: vm.stepPathForward()
-Step backward: vm.stepPathBackward()
-Toggle playback: vm.togglePathPlayback() (only useful if autoplay exists)
-```
-
-### 7) Detections
-
-Clear detections panel: `vm.clearDetections()`
-```
-UI reads:
-state.lastDetection
-state.detections
-```
-
-### 8) Logs / Debug
-
-Clear log: `vm.clearLog()`
-
-Send raw debug command: `vm.sendRaw("...")`
-
-Send status: `vm.sendStatus("...")`
 
 UI reads:
-`state.log`   
 
-## Common gotchas
+- `state.conn`
+- `state.pairedDevices`
+- `state.scannedDevices`
+- `state.isScanning`
+- `state.log`
 
-- Don’t call scan while connected (BluetoothManager will reject).
-- Don’t call direct Bluetooth APIs from UI.
-- Don’t build protocol strings in UI — use VM methods.
+---
+
+### 2. Arena and Robot Rendering
+The arena screen visualizes:
+
+- grid map
+- robot position and facing
+- placed obstacles
+- obstacle target IDs after detection
+- playback path trail
+- drag/drop preview overlays
+
+UI reads:
+
+- `state.arena`
+- `state.robot`
+- `state.placedObstacles`
+- `state.obstacleImages`
+- `state.playbackPath`
+- `state.pendingPreview`
+- `state.dragPreview`
+
+---
+
+### 3. Obstacle Placement and Editing
+Obstacles can be:
+
+- selected by fixed ID
+- placed directly by coordinates
+- dragged on the arena
+- edited through the obstacle details dialog
+- assigned a facing direction
+- reset back to their original state after image detection
+
+Main ViewModel methods:
+
+```kotlin
+vm.pickObstacleToConfigure(obstacleId)
+vm.updatePendingConfig(width, height, facing)
+vm.previewPendingAt(x, y)
+vm.commitPendingAt(x, y)
+vm.cancelPending()
+
+vm.placeObstacleDirect(obstacleId, x, y, width, height, facing)
+vm.previewMovePlaced(protocolId, x, y)
+vm.movePlaced(protocolId, x, y)
+vm.removePlaced(protocolId)
+
+vm.selectObstacle(protocolId)
+vm.setPlacedFacing(protocolId, facing)
+vm.updatePlacedObstacleDirect(protocolId, x, y, facing)
+vm.resetObstacleImage(protocolId)
+vm.clearAllDetectedImages()
+```
+
+---
+
+### 4. Robot Controls
+Manual movement commands are sent through the ViewModel.
+
+Main methods:
+
+```kotlin
+vm.sendMoveForward()
+vm.sendMoveBackward()
+vm.sendTurnLeft()
+vm.sendTurnRight()
+vm.sendStop()
+```
+
+Raw commands can also be sent for debugging:
+
+```kotlin
+vm.sendRaw("...")
+```
+
+---
+
+### 5. Exploration and Fastest Path
+The Android app can trigger both exploration and fastest-path execution.
+
+Main methods:
+
+```kotlin
+vm.sendStartExploration()
+vm.sendStartFastestPath()
+vm.stopCurrentRun()
+```
+
+During runs, the UI also shows:
+
+- run timer
+- execution mode
+- playback path trail
+- image detections
+
+UI reads:
+
+- `state.executionMode`
+- `state.runSeconds`
+
+---
+
+### 6. Playback Visualization
+For demo and playback visualization, the app supports:
+
+- command-based playback execution
+- robot movement animation
+- path trail rendering
+- pause/resume when waiting for image detection
+
+Internally this is driven by command batches and playback queue logic in `MainViewModel`.
+
+UI reads:
+
+- `state.playbackPath`
+
+---
+
+### 7. Image Detection
+When the robot/RPi sends detections, the app can:
+
+- update obstacle labels with detected target IDs
+- store and display detected images
+- show all detected images in a popup window
+
+UI reads:
+
+- `state.obstacleImages`
+- `state.selectedObstacleId`
+- `state.lastImageBytes`
+- `state.placedObstacles.targetId`
+
+---
+
+### 8. Logs and Status
+The controller screen includes a live chat/log area for:
+
+- sent commands
+- received messages
+- status updates
+- image detection events
+- debug information
+
+UI reads:
+
+- `state.statusText`
+- `state.log`
+
+---
+
+## Current UI Screens
+
+### Connection Screen
+Used for:
+- scanning
+- pairing
+- connecting/disconnecting
+- Bluetooth logs
+
+### Controller Screen
+Used for:
+- arena display
+- obstacle interaction
+- robot controls
+- run controls
+- timer
+- log/chat area
+- obstacle image/details dialog
+
+---
+
+## Architecture Notes
+
+The Android app follows a ViewModel-centered architecture:
+
+- `MainViewModel` handles orchestration
+- reducer classes handle state transformation
+- `ArenaView` handles custom rendering and gesture interaction
+- protocol parsing is isolated in the `protocol` package
+- Bluetooth transport is isolated in `BluetoothManager`
+
+---
+
+## Important Notes
+
+- Do not call Bluetooth APIs directly from the UI
+- Do not build outgoing protocol strings inside fragments/views
+- Use `MainViewModel` methods for all robot, obstacle, and Bluetooth actions
+- Image rendering and obstacle detection state are separate concerns
+- Resetting the system should also clear path trail, run timer, and detected images
+
+---
