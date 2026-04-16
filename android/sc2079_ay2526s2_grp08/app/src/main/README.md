@@ -1,8 +1,8 @@
-# 🚗 Real-Time Robot Control Dashboard (Android)
+# Real-Time Robot Control Dashboard (Android)
 
 An Android-based control system for real-time robot navigation, featuring a car dashboard-style interface.
 
-![Demo](android\sc2079_ay2526s2_grp08\assets\demo.gif)
+![Demo](../../../assets/demo.gif)
 
 ---
 # Android Control Dashboard
